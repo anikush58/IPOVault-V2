@@ -1,0 +1,297 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /ipo/fetch:
+    get:
+      operationId: fetchIPODetails
+      tags: [ipo]
+      summary: Fetch IPO Details
+      description: Search and scrape IPO details by name from Chittorgarh
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful retrieval of IPO details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IPODetails"
+        "400":
+          description: Missing query parameter
+        "404":
+          description: IPO not found
+        "500":
+          description: Internal server error
+  /allotment/check:
+    post:
+      operationId: checkAllotment
+      tags: [allotment]
+      summary: Check Allotment Status
+      description: Check allotment status for multiple PANs from the registrar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AllotmentCheckRequest"
+      responses:
+        "200":
+          description: Allotment check results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllotmentCheckResponse"
+  /allotment/session/init:
+    post:
+      operationId: initAllotmentSession
+      tags: [allotment]
+      summary: Initialize Allotment Session
+      description: Start a session with a registrar and fetch a CAPTCHA challenge if needed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                registrar:
+                  type: string
+              required:
+                - registrar
+      responses:
+        "200":
+          description: Session initialization details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllotmentSessionResponse"
+  /allotment/session/solve:
+    post:
+      operationId: solveAllotmentSession
+      tags: [allotment]
+      summary: Submit CAPTCHA Solution
+      description: Submit captcha solution to authorize/unlock session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id:
+                  type: string
+                solution:
+                  type: string
+              required:
+                - session_id
+                - solution
+      responses:
+        "200":
+          description: Session solution status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [authenticated, failed]
+                required:
+                  - status
+  /allotment/health:
+    get:
+      operationId: getRegistrarHealth
+      tags: [allotment]
+      summary: Get Registrar Health
+      description: Retrieve health status and statistics for all registrars
+      responses:
+        "200":
+          description: Registrar health list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RegistrarHealth"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    IPODetails:
+      type: object
+      properties:
+        ipo_name:
+          type: string
+        buy_price:
+          type: number
+        quantity:
+          type: integer
+        open_date:
+          type: string
+        close_date:
+          type: string
+        listing_date:
+          type: string
+        allotment_date:
+          type: string
+        registrar:
+          type: string
+        exchange:
+          type: string
+        issue_type:
+          type: string
+      required:
+        - ipo_name
+        - buy_price
+        - quantity
+        - open_date
+        - close_date
+        - listing_date
+        - registrar
+        - exchange
+        - issue_type
+    AllotmentCheckRequest:
+      type: object
+      properties:
+        ipo_name:
+          type: string
+        registrar:
+          type: string
+        session_id:
+          type: string
+        applicants:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApplicantInfo"
+      required:
+        - ipo_name
+        - registrar
+        - applicants
+    ApplicantInfo:
+      type: object
+      properties:
+        pan:
+          type: string
+        name:
+          type: string
+      required:
+        - pan
+        - name
+    AllotmentCheckResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success, captcha_required]
+        session_id:
+          type: string
+        captcha_image:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/AllotmentResult"
+      required:
+        - status
+    AllotmentSessionResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        captcha_required:
+          type: boolean
+        captcha_image:
+          type: string
+      required:
+        - session_id
+        - captcha_required
+    AllotmentResult:
+      type: object
+      properties:
+        pan:
+          type: string
+        status:
+          type: string
+          enum: [allotted, not_allotted, no_record, error]
+        error_code:
+          type: string
+          enum: [
+            REGISTRAR_UNAVAILABLE,
+            CAPTCHA_DETECTED,
+            RATE_LIMITED,
+            TIMEOUT,
+            IPO_NOT_PUBLISHED,
+            PAN_NOT_FOUND,
+            NETWORK_UNAVAILABLE,
+            UNSUPPORTED_REGISTRAR,
+            UNEXPECTED_RESPONSE
+          ]
+        shares_allotted:
+          type: integer
+        amount_blocked:
+          type: number
+      required:
+        - pan
+        - status
+    RegistrarHealth:
+      type: object
+      properties:
+        registrarName:
+          type: string
+        lastSuccessfulCheck:
+          type: string
+          nullable: true
+        lastFailedCheck:
+          type: string
+          nullable: true
+        successRate:
+          type: number
+        averageResponseTime:
+          type: number
+        captchaDetectedCount:
+          type: integer
+        currentStatus:
+          type: string
+          enum: [HEALTHY, DEGRADED, DOWN]
+      required:
+        - registrarName
+        - lastSuccessfulCheck
+        - lastFailedCheck
+        - successRate
+        - averageResponseTime
+        - captchaDetectedCount
+        - currentStatus
+
+
