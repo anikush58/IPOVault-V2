@@ -41,9 +41,13 @@
       "reactCompiler": true
     },
     "extra": {
+      "router": {
+        "origin": "https://replit.com/"
+      },
       "eas": {
-        "projectId": "0b8b8d60-4d6d-4597-93cf-19c320715eb1"
+        "projectId": "0a73d521-8d9e-4958-b22e-ed090dfc058c"
       }
-    }
+    },
+    "owner": "gradle58"
   }
 }
