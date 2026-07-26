@@ -463,10 +463,8 @@ export default function SettingsScreen() {
                     {user?.email}
                   </Text>
                   <View style={[styles.providerBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                    <Feather name={user?.app_metadata?.provider === 'google' ? 'globe' : 'mail'} size={12} color={colors.foreground} />
-                    <Text style={[styles.providerText, { color: colors.foreground }]}>
-                      {user?.app_metadata?.provider === 'google' ? 'Google' : 'Email'}
-                    </Text>
+                    <Feather name="globe" size={12} color={colors.foreground} />
+                    <Text style={[styles.providerText, { color: colors.foreground }]}>Google</Text>
                   </View>
                 </View>
               </View>
@@ -480,7 +478,7 @@ export default function SettingsScreen() {
           ) : (
             <SettingRow
               icon="log-in"
-              title="Sign In / Register"
+              title="Sign In with Google"
               subtitle="Enable cloud backup & sync"
               onPress={() => router.push('/auth')}
             />

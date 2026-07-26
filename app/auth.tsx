@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/sync/supabase';
@@ -7,7 +7,7 @@ import { useColors } from '@/hooks/useColors';
 import { useAuth } from '@/context/AuthContext';
 import { useDialog } from '@/context/DialogContext';
 import { Feather } from '@expo/vector-icons';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import * as QueryParams from 'expo-auth-session/build/QueryParams';
@@ -19,116 +19,83 @@ export default function AuthScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isLogin, setIsLogin] = useState(true);
+  const { showError } = useDialog();
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
-  function handleNavigateBack() {
+  function handleNavigateHome() {
     if (router.canGoBack()) {
       router.back();
     } else {
-      router.replace('/(tabs)/settings');
+      router.replace('/(tabs)');
     }
   }
 
   useEffect(() => {
     if (user) {
-      handleNavigateBack();
+      handleNavigateHome();
     }
   }, [user]);
-
-  const { showError, showSuccess } = useDialog();
-
-  async function signInWithEmail() {
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      showError('Sign In Failed', error.message);
-    } else {
-      handleNavigateBack();
-    }
-    setLoading(false);
-  }
-
-  async function signUpWithEmail() {
-    setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
-
-    if (error) {
-      showError('Sign Up Failed', error.message);
-    } else {
-      showSuccess('Success', 'Please check your inbox for email verification!');
-      setIsLogin(true);
-    }
-    setLoading(false);
-  }
 
   async function signInWithGoogle() {
     setLoading(true);
     const redirectTo = makeRedirectUri({
       scheme: 'ipovault',
-      path: 'auth/callback'
+      path: 'auth/callback',
     });
 
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo,
-        skipBrowserRedirect: true,
-      },
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true,
+        },
+      });
 
-    if (error) {
-      showError('Google Sign-In Failed', error.message);
-      setLoading(false);
-      return;
-    }
+      if (error) {
+        showError('Google Sign-In Failed', error.message);
+        setLoading(false);
+        return;
+      }
 
-    if (data?.url) {
-      try {
+      if (data?.url) {
         const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
         WebBrowser.dismissBrowser();
+
         if (res.type === 'success') {
           const { url } = res;
-
           const { params, errorCode } = QueryParams.getQueryParams(url);
 
           if (errorCode) throw new Error(errorCode);
 
           if (params?.code) {
-            const { error } = await supabase.auth.exchangeCodeForSession(params.code);
-            if (error) throw error;
-            handleNavigateBack();
+            const { error: sessionError } = await supabase.auth.exchangeCodeForSession(params.code);
+            if (sessionError) throw sessionError;
+            handleNavigateHome();
           } else if (params?.access_token && params?.refresh_token) {
-            const { error } = await supabase.auth.setSession({
+            const { error: sessionError } = await supabase.auth.setSession({
               access_token: params.access_token,
               refresh_token: params.refresh_token,
             });
-            if (error) throw error;
-            handleNavigateBack();
+            if (sessionError) throw sessionError;
+            handleNavigateHome();
           } else {
-            showError('Auth Error', 'No session code or tokens returned in authentication response.');
+            showError('Auth Error', 'No session tokens returned in response.');
           }
         }
-      } catch (err: any) {
-        showError('Google Sign-In Failed', err?.message || 'Failed to open browser');
       }
+    } catch (err: any) {
+      showError('Google Sign-In Failed', err?.message || 'Failed to complete Google Sign-In');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header */}
       <View style={[styles.header, { paddingTop: topPad, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <LinearGradient
           colors={[colors.primary + '22', colors.primary + '00']}
@@ -137,89 +104,52 @@ export default function AuthScreen() {
           style={styles.headerGlow}
           pointerEvents="none"
         />
-        <TouchableOpacity
-          onPress={handleNavigateBack}
-          style={[styles.backBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
-          hitSlop={8}
-        >
-          <Feather name="chevron-left" size={20} color={colors.foreground} />
-        </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={[styles.headerEyebrow, { color: colors.primary }]}>Account</Text>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-            {isLogin ? 'Welcome Back' : 'Create Account'}
-          </Text>
+          <Text style={[styles.headerEyebrow, { color: colors.primary }]}>IPOVault</Text>
+          <Text style={[styles.headerTitle, { color: colors.foreground }]}>Authentication</Text>
         </View>
-        <View style={styles.headerRightPlaceholder} />
       </View>
 
+      {/* Main Content */}
       <View style={styles.content}>
-        <View style={styles.inputContainer}>
-          <Text style={[styles.label, { color: colors.mutedForeground }]}>Email</Text>
-          <TextInput
-            style={[
-              styles.input,
-              { backgroundColor: colors.surface, color: colors.foreground, borderColor: colors.border }
-            ]}
-            placeholder="you@example.com"
-            placeholderTextColor={colors.mutedForeground}
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-          />
-        </View>
+        <View style={styles.heroSection}>
+          <LinearGradient
+            colors={[colors.primary + '33', colors.primary + '0A']}
+            style={styles.logoBadge}
+          >
+            <Feather name="trending-up" size={42} color={colors.primary} />
+          </LinearGradient>
 
-        <View style={styles.inputContainer}>
-          <Text style={[styles.label, { color: colors.mutedForeground }]}>Password</Text>
-          <TextInput
-            style={[
-              styles.input,
-              { backgroundColor: colors.surface, color: colors.foreground, borderColor: colors.border }
-            ]}
-            placeholder="••••••••"
-            placeholderTextColor={colors.mutedForeground}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-        </View>
-
-        <TouchableOpacity
-          style={[styles.primaryButton, { backgroundColor: colors.primary }]}
-          onPress={isLogin ? signInWithEmail : signUpWithEmail}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.primaryButtonText}>{isLogin ? 'Sign In' : 'Sign Up'}</Text>
-          )}
-        </TouchableOpacity>
-
-        <View style={styles.dividerContainer}>
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>OR</Text>
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-        </View>
-
-        <TouchableOpacity
-          style={[styles.googleButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-          onPress={signInWithGoogle}
-          disabled={loading}
-        >
-          <Feather name="globe" size={20} color={colors.foreground} style={styles.googleIcon} />
-          <Text style={[styles.googleButtonText, { color: colors.foreground }]}>Continue with Google</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.toggleButton}
-          onPress={() => setIsLogin(!isLogin)}
-        >
-          <Text style={[styles.toggleButtonText, { color: colors.primary }]}>
-            {isLogin ? "Don't have an account? Sign Up" : 'Already have an account? Sign In'}
+          <Text style={[styles.welcomeTitle, { color: colors.foreground }]}>
+            Welcome to IPOVault
           </Text>
-        </TouchableOpacity>
+          <Text style={[styles.welcomeSubtitle, { color: colors.mutedForeground }]}>
+            Sign in with your Google account to sync your IPO applications, bank accounts, and family profiles seamlessly.
+          </Text>
+        </View>
+
+        {/* Action Section */}
+        <View style={styles.actionSection}>
+          <TouchableOpacity
+            style={[styles.googleButton, { backgroundColor: colors.primary }]}
+            onPress={signInWithGoogle}
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <Feather name="globe" size={20} color="#FFFFFF" style={styles.googleIcon} />
+                <Text style={styles.googleButtonText}>Continue with Google</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <Text style={[styles.disclaimerText, { color: colors.mutedForeground }]}>
+            Secured by Supabase Authentication & Google OAuth
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -231,30 +161,17 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingBottom: 14,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'center',
   },
   headerGlow: {
     ...StyleSheet.absoluteFillObject,
   },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   headerCenter: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  headerRightPlaceholder: {
-    width: 36,
   },
   headerEyebrow: {
     fontSize: 11,
@@ -265,66 +182,60 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerTitle: {
-    fontSize: 30,
+    fontSize: 28,
     fontFamily: 'DMSans_700Bold',
     letterSpacing: -0.8,
-    lineHeight: 34,
+    lineHeight: 32,
     textAlign: 'center',
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingHorizontal: 28,
+    justifyContent: 'space-between',
+    paddingTop: 48,
+    paddingBottom: 40,
   },
-  inputContainer: {
-    marginBottom: 20,
+  heroSection: {
+    alignItems: 'center',
   },
-  label: {
-    fontFamily: 'DMSans_500Medium',
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  input: {
-    fontFamily: 'DMSans_400Regular',
-    fontSize: 16,
-    height: 50,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-  },
-  primaryButton: {
-    height: 50,
-    borderRadius: 12,
+  logoBadge: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 10,
+    marginBottom: 28,
   },
-  primaryButtonText: {
-    fontFamily: 'DMSans_600SemiBold',
-    fontSize: 16,
-    color: '#fff',
+  welcomeTitle: {
+    fontSize: 26,
+    fontFamily: 'DMSans_700Bold',
+    textAlign: 'center',
+    marginBottom: 12,
+    letterSpacing: -0.5,
   },
-  dividerContainer: {
-    flexDirection: 'row',
+  welcomeSubtitle: {
+    fontSize: 15,
+    fontFamily: 'DMSans_400Regular',
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: 12,
+  },
+  actionSection: {
+    width: '100%',
     alignItems: 'center',
-    marginVertical: 30,
-  },
-  divider: {
-    flex: 1,
-    height: 1,
-  },
-  dividerText: {
-    fontFamily: 'DMSans_500Medium',
-    fontSize: 14,
-    marginHorizontal: 15,
   },
   googleButton: {
     flexDirection: 'row',
-    height: 50,
-    borderRadius: 12,
-    borderWidth: 1,
+    height: 54,
+    width: '100%',
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 4,
   },
   googleIcon: {
     marginRight: 10,
@@ -332,13 +243,12 @@ const styles = StyleSheet.create({
   googleButtonText: {
     fontFamily: 'DMSans_600SemiBold',
     fontSize: 16,
+    color: '#FFFFFF',
   },
-  toggleButton: {
-    marginTop: 30,
-    alignItems: 'center',
-  },
-  toggleButtonText: {
-    fontFamily: 'DMSans_500Medium',
-    fontSize: 15,
+  disclaimerText: {
+    fontSize: 12,
+    fontFamily: 'DMSans_400Regular',
+    textAlign: 'center',
+    marginTop: 18,
   },
 });

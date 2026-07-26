@@ -56,6 +56,7 @@ function RootLayoutNav() {
         <Stack.Screen name="applications" options={{ headerShown: false }} />
         <Stack.Screen name="ipos" options={{ headerShown: false }} />
         <Stack.Screen name="auth" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
         {FeatureFlags.ENABLE_AUTO_ALLOTMENT && (
           <Stack.Screen name="allotment-checker" options={{ headerShown: false }} />
         )}
