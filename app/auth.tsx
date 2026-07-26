@@ -69,7 +69,7 @@ export default function AuthScreen() {
     });
 
     console.log("========== GOOGLE OAUTH ==========");
-    console.log("Redirect URI:", redirectTo);
+    Alert.alert("Redirect URI", redirectTo);
     console.log("==================================");
 
     const { data, error } = await supabase.auth.signInWithOAuth({
@@ -87,30 +87,30 @@ export default function AuthScreen() {
       setLoading(false);
       return;
     }
-    
+
     if (data?.url) {
       try {
         const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
         if (res.type === 'success') {
           const { url } = res;
-          
+
           const { params, errorCode } = QueryParams.getQueryParams(url);
-          
+
           if (errorCode) throw new Error(errorCode);
-          
+
           if (params?.code) {
-             const { error } = await supabase.auth.exchangeCodeForSession(params.code);
-             if (error) throw error;
-             handleNavigateBack();
+            const { error } = await supabase.auth.exchangeCodeForSession(params.code);
+            if (error) throw error;
+            handleNavigateBack();
           } else if (params?.access_token && params?.refresh_token) {
-             const { error } = await supabase.auth.setSession({
-               access_token: params.access_token,
-               refresh_token: params.refresh_token,
-             });
-             if (error) throw error;
-             handleNavigateBack();
+            const { error } = await supabase.auth.setSession({
+              access_token: params.access_token,
+              refresh_token: params.refresh_token,
+            });
+            if (error) throw error;
+            handleNavigateBack();
           } else {
-             Alert.alert('Auth Error', 'No session code or tokens returned in authentication response.');
+            Alert.alert('Auth Error', 'No session code or tokens returned in authentication response.');
           }
         }
       } catch (err: any) {
