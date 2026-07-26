@@ -5,16 +5,17 @@ export class SyncPull {
   async pullLatestData(lastSyncTimestamp: string | null): Promise<PullPayload> {
     console.log(`[Pull] Fetching latest data from Supabase since ${lastSyncTimestamp || 'beginning of time'}...`);
     
-    // We fetch from the 4 actual Supabase tables.
-    // The query `.gt('updated_at', lastSyncTimestamp)` ensures we only get delta changes.
-    // We also use `.order('updated_at', { ascending: true })` to process oldest to newest if needed,
-    // though the engine will UPSERT them locally which handles duplicates anyway.
+    // Strict remote table queries:
+    // - users
+    // - banks
+    // - ipo_master
+    // - applications
     
     const queries = [
-      this.fetchTable('users_table', lastSyncTimestamp),
-      this.fetchTable('bank_accounts', lastSyncTimestamp),
-      this.fetchTable('ipo_listings', lastSyncTimestamp),
-      this.fetchTable('ipo_applications', lastSyncTimestamp)
+      this.fetchTable('users', lastSyncTimestamp),
+      this.fetchTable('banks', lastSyncTimestamp),
+      this.fetchTable('ipo_master', lastSyncTimestamp),
+      this.fetchTable('applications', lastSyncTimestamp)
     ];
 
     const [users, banks, ipos, apps] = await Promise.all(queries);
@@ -24,21 +25,23 @@ export class SyncPull {
       banks: banks,
       ipos: ipos,
       applications: apps,
-      brokers: [], // Not a real table
-      settings: [], // Not a real table
-      notes: [], // Not a real table
+      brokers: [],
+      settings: [],
+      notes: [],
     };
   }
 
-  private async fetchTable(tableName: string, lastSyncTimestamp: string | null): Promise<any[]> {
-    let query = supabase.from(tableName).select('*');
+  private async fetchTable(remoteTable: string, lastSyncTimestamp: string | null): Promise<any[]> {
+    console.log('[DEBUG] Pulling from:', remoteTable);
+    let query = supabase.from(remoteTable).select('*');
     if (lastSyncTimestamp) {
       query = query.gt('updated_at', lastSyncTimestamp);
     }
     
     const { data, error } = await query;
+
     if (error) {
-      console.error(`[Pull] Error fetching from ${tableName}:`, error);
+      console.error(`[Pull] Error fetching from ${remoteTable}:`, error);
       return [];
     }
     return data || [];

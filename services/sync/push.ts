@@ -1,16 +1,51 @@
 import { SQLiteDatabase } from 'expo-sqlite';
 import { supabase } from '@/sync/supabase';
 import { PushResult } from './types';
+import { getSupabaseTableName } from './constants';
+
+function sanitizePayload(tableName: string, payload: any, userId?: string): any {
+  const item = { ...payload };
+  if (userId) {
+    if (!item.owner_id) item.owner_id = userId;
+    if (!item.user_id && tableName !== 'ipo_applications') item.user_id = userId;
+  }
+  if (tableName === 'ipo_applications') {
+    if (item.user_id && !item.profile_id) {
+      item.profile_id = item.user_id;
+    }
+  }
+  if (tableName === 'ipo_listings') {
+    if (item.ipo_name && !item.company_name) item.company_name = item.ipo_name;
+    if (item.buy_price !== undefined) {
+      if (item.price_band_min === undefined) item.price_band_min = item.buy_price;
+      if (item.price_band_max === undefined) item.price_band_max = item.buy_price;
+    }
+    if (item.quantity !== undefined && item.lot_size === undefined) {
+      item.lot_size = item.quantity;
+    }
+  }
+  return item;
+}
 
 export class SyncPush {
   constructor(private db: SQLiteDatabase) {}
 
-  async pushBatchedInserts(tableName: string, payloads: any[]): Promise<PushResult> {
+  async pushBatchedInserts(tableName: string, payloads: any[], userId?: string): Promise<PushResult> {
     if (payloads.length === 0) return { success: true };
-    console.log(`[Push] Executing batched INSERT on ${tableName} for ${payloads.length} records`);
-    const { error } = await supabase.from(tableName).insert(payloads);
+
+    const remoteTable = getSupabaseTableName(tableName);
+    const sanitizedPayloads = payloads.map((p) => sanitizePayload(tableName, p, userId));
+
+    console.log('[DEBUG] Local table:', tableName);
+    console.log('[DEBUG] Remote table:', remoteTable);
+    console.log('[DEBUG] Operation: UPSERT (Batched)');
+    console.log('[DEBUG] Payload count:', sanitizedPayloads.length);
+    console.log('[DEBUG] Sample Payload:', JSON.stringify(sanitizedPayloads[0] ?? {}, null, 2));
+
+    const { error } = await supabase.from(remoteTable).upsert(sanitizedPayloads, { onConflict: 'id' });
+
     if (error) {
-      console.error(`[Push] Batched INSERT error on ${tableName}:`, error);
+      console.error(`[Push] Batched UPSERT error on ${remoteTable}:`, error);
       return { success: false, retryable: true };
     }
     return { success: true };
@@ -18,51 +53,73 @@ export class SyncPush {
 
   async pushBatchedDeletes(tableName: string, ids: string[]): Promise<PushResult> {
     if (ids.length === 0) return { success: true };
-    console.log(`[Push] Executing batched DELETE on ${tableName} for ${ids.length} records`);
-    const { error } = await supabase.from(tableName).delete().in('id', ids);
+    const remoteTable = getSupabaseTableName(tableName);
+
+    console.log('[DEBUG] Local table:', tableName);
+    console.log('[DEBUG] Remote table:', remoteTable);
+    console.log('[DEBUG] Operation: DELETE (Batched)');
+    console.log('[DEBUG] IDs:', ids);
+
+    const { error } = await supabase.from(remoteTable).delete().in('id', ids);
+
     if (error) {
-      console.error(`[Push] Batched DELETE error on ${tableName}:`, error);
+      console.error(`[Push] Batched DELETE error on ${remoteTable}:`, error);
       return { success: false, retryable: true };
     }
     return { success: true };
   }
 
   // A generic dispatcher based on queue payload (used for UPDATEs)
-  async pushQueueItem(tableName: string, action: string, payload: any): Promise<PushResult> {
-    console.log(`[Push] Executing ${action} on ${tableName} for record ${payload.id || 'unknown'}`);
-    
+  async pushQueueItem(tableName: string, action: string, payload: any, userId?: string): Promise<PushResult> {
+    const remoteTable = getSupabaseTableName(tableName);
+
     if (action === 'INSERT') {
-      const { error } = await supabase.from(tableName).insert(payload);
+      const item = sanitizePayload(tableName, payload, userId);
+      console.log('[DEBUG] Local table:', tableName);
+      console.log('[DEBUG] Remote table:', remoteTable);
+      console.log('[DEBUG] Operation: INSERT (Single)');
+      console.log('[DEBUG] Payload:', JSON.stringify(item, null, 2));
+
+      const { error } = await supabase.from(remoteTable).upsert(item, { onConflict: 'id' });
       if (error) {
-        console.error(`[Push] INSERT error on ${tableName}:`, error);
+        console.error(`[Push] INSERT/UPSERT error on ${remoteTable}:`, error);
         return { success: false, retryable: true };
       }
       return { success: true };
     } 
-    
+
     if (action === 'DELETE') {
-      const { error } = await supabase.from(tableName).delete().eq('id', payload.id);
+      console.log('[DEBUG] Local table:', tableName);
+      console.log('[DEBUG] Remote table:', remoteTable);
+      console.log('[DEBUG] Operation: DELETE (Single)');
+      console.log('[DEBUG] Record ID:', payload.id);
+
+      const { error } = await supabase.from(remoteTable).delete().eq('id', payload.id);
       if (error) {
-        console.error(`[Push] DELETE error on ${tableName}:`, error);
+        console.error(`[Push] DELETE error on ${remoteTable}:`, error);
         return { success: false, retryable: true };
       }
       return { success: true };
     }
 
     if (action === 'UPDATE') {
-      // Optimistic concurrency
       const expectedVersion = payload.sync_version || 0;
       const nextVersion = expectedVersion + 1;
       const nextUpdatedAt = new Date().toISOString();
 
-      const updatePayload = {
+      const updatePayload: any = sanitizePayload(tableName, {
         ...payload,
         sync_version: nextVersion,
         updated_at: nextUpdatedAt
-      };
+      }, userId);
+
+      console.log('[DEBUG] Local table:', tableName);
+      console.log('[DEBUG] Remote table:', remoteTable);
+      console.log('[DEBUG] Operation: UPDATE (Single)');
+      console.log('[DEBUG] Payload:', JSON.stringify(updatePayload, null, 2));
 
       const { data, error } = await supabase
-        .from(tableName)
+        .from(remoteTable)
         .update(updatePayload)
         .eq('id', payload.id)
         .eq('sync_version', expectedVersion)
@@ -70,22 +127,17 @@ export class SyncPush {
         .maybeSingle();
 
       if (error) {
-        console.error(`[Network] UPDATE error on ${tableName}:`, error);
-        // If it's a network error or 5xx, we should retry. We assume most errors here (like timeouts) are retryable.
+        console.error(`[Network] UPDATE error on ${remoteTable}:`, error);
         return { success: false, retryable: true };
       }
 
       if (!data) {
-        // No row updated -> sync_version mismatch or row deleted -> Conflict!
-        console.warn(`[Conflict] Sync conflict on ${tableName} for id ${payload.id}. Version mismatch.`);
-        
-        // Fetch the remote row to pass to conflict resolver
-        const { data: remoteRow } = await supabase.from(tableName).select('*').eq('id', payload.id).maybeSingle();
+        console.warn(`[Conflict] Sync conflict on ${remoteTable} for id ${payload.id}. Version mismatch.`);
+        const { data: remoteRow } = await supabase.from(remoteTable).select('*').eq('id', payload.id).maybeSingle();
         return { success: false, conflict: true, remoteRow };
       }
 
-      // Success! Persist the new sync_version and updated_at locally.
-      console.log(`[Push] UPDATE successful. Updating local sync_version to ${nextVersion}.`);
+      console.log(`[Push] UPDATE successful on ${remoteTable}. Updating local sync_version to ${nextVersion}.`);
       await this.db.runAsync(
         `UPDATE ${tableName} SET sync_version = ?, updated_at = ? WHERE id = ?`,
         [nextVersion, nextUpdatedAt, payload.id]

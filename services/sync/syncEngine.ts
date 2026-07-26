@@ -77,7 +77,7 @@ export class SyncEngine {
         const tableInserts = inserts.filter(i => i.table_name === table);
         if (tableInserts.length > 0) {
           const payloads = tableInserts.map(i => JSON.parse(i.payload));
-          const result = await this.pushLayer.pushBatchedInserts(table, payloads);
+          const result = await this.pushLayer.pushBatchedInserts(table, payloads, userId);
           if (result.success) {
             for (const item of tableInserts) await this.queue.markSuccess(item.id);
             rowsUploaded += tableInserts.length;
@@ -110,7 +110,7 @@ export class SyncEngine {
           console.warn(`[Queue] Failed to parse payload for item ${item.id}`);
         }
 
-        const result = await this.pushLayer.pushQueueItem(item.table_name, item.action, payloadObj);
+        const result = await this.pushLayer.pushQueueItem(item.table_name, item.action, payloadObj, userId);
         
         if (result.success) {
           await this.queue.markSuccess(item.id);
