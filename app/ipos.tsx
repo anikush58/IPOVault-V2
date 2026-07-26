@@ -19,6 +19,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
+import { useDialog } from '@/context/DialogContext';
 import { useDB, type IPOListing } from '@/context/DBContext';
 import { AddIPOModal } from '@/components/AddIPOModal';
 import { formatCurrency } from '@/utils/formatters';
@@ -45,6 +46,7 @@ type EditModalProps = {
 function EditIPOModal({ ipo, onClose }: EditModalProps) {
   const colors = useColors();
   const { updateIPO } = useDB();
+  const { showError } = useDialog();
   const insets = useSafeAreaInsets();
 
   const [name, setName] = useState(ipo?.ipo_name ?? '');
@@ -80,13 +82,13 @@ function EditIPOModal({ ipo, onClose }: EditModalProps) {
   const handleSave = async () => {
     if (!ipo) return;
     if (!name.trim() || !price || !qty) {
-      Alert.alert('Required', 'Please fill in IPO name, cut-off price, and lot size.');
+      showError('Required', 'Please fill in IPO name, cut-off price, and lot size.');
       return;
     }
     const parsedPrice = parseFloat(price);
     const parsedQty = parseInt(qty, 10);
-    if (isNaN(parsedPrice) || parsedPrice <= 0) { Alert.alert('Invalid', 'Enter a valid cut-off price.'); return; }
-    if (isNaN(parsedQty) || parsedQty <= 0) { Alert.alert('Invalid', 'Enter a valid lot size.'); return; }
+    if (isNaN(parsedPrice) || parsedPrice <= 0) { showError('Invalid', 'Enter a valid cut-off price.'); return; }
+    if (isNaN(parsedQty) || parsedQty <= 0) { showError('Invalid', 'Enter a valid lot size.'); return; }
 
     setSaving(true);
     try {
@@ -106,7 +108,7 @@ function EditIPOModal({ ipo, onClose }: EditModalProps) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onClose();
     } catch {
-      Alert.alert('Error', 'Failed to update IPO. Please try again.');
+      showError('Error', 'Failed to update IPO. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -445,64 +447,48 @@ export default function IPOsScreen() {
     return archivedIPOs.length;
   };
 
+  const { showConfirm } = useDialog();
+
   const handleArchive = (ipo: IPOListing) => {
-    const doArchive = async () => {
-      await archiveIPO(ipo.id);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    };
-    if (Platform.OS === 'web') {
-      if ((globalThis as any).confirm?.(`Archive "${ipo.ipo_name}"? It will be moved to the Archived tab.`)) doArchive();
-    } else {
-      Alert.alert(
-        `Archive "${ipo.ipo_name}"?`,
-        'It will be moved to the Archived tab and kept for records.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Archive', onPress: doArchive },
-        ],
-      );
-    }
+    showConfirm({
+      title: `Archive "${ipo.ipo_name}"?`,
+      message: 'It will be moved to the Archived tab and kept for records.',
+      confirmText: 'Archive',
+      onConfirm: async () => {
+        await archiveIPO(ipo.id);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      },
+    });
   };
 
   const handleUnarchive = (ipo: IPOListing) => {
-    const doUnarchive = async () => {
-      await unarchiveIPO(ipo.id);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    };
-    if (Platform.OS === 'web') {
-      if ((globalThis as any).confirm?.(`Unarchive "${ipo.ipo_name}"? It will be moved to the Active tab.`)) doUnarchive();
-    } else {
-      Alert.alert(
-        `Unarchive "${ipo.ipo_name}"?`,
-        'It will be moved to the Active tab and can be edited.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Unarchive', onPress: doUnarchive },
-        ],
-      );
-    }
+    showConfirm({
+      title: `Unarchive "${ipo.ipo_name}"?`,
+      message: 'It will be moved to the Active tab and can be edited.',
+      confirmText: 'Unarchive',
+      onConfirm: async () => {
+        await unarchiveIPO(ipo.id);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      },
+    });
   };
 
   const handleDelete = (ipo: IPOListing) => {
     const count = appCountMap.get(ipo.id) ?? 0;
-    const doDelete = async () => {
-      await deleteIPO(ipo.id);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    };
-    if (Platform.OS === 'web') {
-      const msg = count > 0
-        ? `Delete "${ipo.ipo_name}" and ${count} linked application${count !== 1 ? 's' : ''}? This cannot be undone.`
-        : `Delete "${ipo.ipo_name}"? This cannot be undone.`;
-      if ((globalThis as any).confirm?.(msg)) doDelete();
-    } else {
-      const message = count > 0
-        ? `This will also delete ${count} linked application${count !== 1 ? 's' : ''}. This cannot be undone.`
-        : 'This cannot be undone.';
-      Alert.alert(`Delete "${ipo.ipo_name}"?`, message, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: doDelete },
-      ]);
-    }
+    const message = count > 0
+      ? `This will also delete ${count} linked application${count !== 1 ? 's' : ''}. This cannot be undone.`
+      : 'This cannot be undone.';
+
+    showConfirm({
+      title: `Delete "${ipo.ipo_name}"?`,
+      message,
+      confirmText: 'Delete',
+      isDanger: true,
+      onConfirm: async () => {
+        await deleteIPO(ipo.id);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      },
+    });
   };
 
   return (

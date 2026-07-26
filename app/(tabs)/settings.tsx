@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Alert, Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { ActivityIndicator, Alert, Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -8,6 +8,7 @@ import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
+import { useDialog } from '@/context/DialogContext';
 import { useDB } from '@/context/DBContext';
 import { type ThemePreference, useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -166,10 +167,10 @@ const themeStyles = StyleSheet.create({
   segmentLabel: { fontSize: 13, fontFamily: 'DMSans_600SemiBold' },
 });
 
-// The SyncDebugSection has been moved to /sync-debug.tsx
-
 export default function SettingsScreen() {
   const colors = useColors();
+  const db = useSQLiteContext();
+  const syncEngineRef = useRef(new SyncEngine(db));
   const {
     exportJSON,
     importJSON,
@@ -179,13 +180,20 @@ export default function SettingsScreen() {
     users,
     ipos,
     bankAccounts,
-    autoExportEnabled,
-    setAutoExportEnabled,
+    refresh,
   } = useDB();
   const { session, user, signOut } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncSummary, setSyncSummary] = useState<{
+    success: boolean;
+    uploaded?: number;
+    downloaded?: number;
+    durationSec?: string;
+    errorMsg?: string;
+  } | null>(null);
   
   const [autoSync, setAutoSync] = useState(true);
   const [syncInterval, setSyncInterval] = useState(15);
@@ -221,6 +229,71 @@ export default function SettingsScreen() {
     });
   }, []);
 
+  const formatLastSyncTime = (timestamp: string | null) => {
+    if (!timestamp) return 'Never';
+    const date = new Date(timestamp);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (isToday) {
+      return `Today, ${timeStr}`;
+    }
+    return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
+  };
+
+  const { showConfirm, showError, showSuccess, showInfo } = useDialog();
+
+  const handleSyncNow = async () => {
+    if (!user) {
+      showInfo('Sign In Required', 'Please sign in to synchronize data with the cloud.');
+      return;
+    }
+    if (syncStatus.state === 'Syncing' || isSyncing) return;
+
+    setIsSyncing(true);
+    setSyncSummary(null);
+    Haptics.selectionAsync();
+
+    const startTime = Date.now();
+    try {
+      await syncEngineRef.current.runSyncPipeline(user.id);
+      await refresh();
+
+      const status = syncStore.getStatus();
+      const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
+
+      if (status.state === 'Error' || status.error) {
+        let friendlyMsg = status.error || 'Failed to synchronize with Supabase.';
+        if (friendlyMsg.includes('Network') || friendlyMsg.includes('Fetch') || friendlyMsg.includes('network') || friendlyMsg.includes('Failed to fetch')) {
+          friendlyMsg = 'No internet connection';
+        } else if (friendlyMsg.includes('JWT') || friendlyMsg.includes('token') || friendlyMsg.includes('auth')) {
+          friendlyMsg = 'Authentication expired';
+        } else if (friendlyMsg.includes('Supabase')) {
+          friendlyMsg = 'Supabase unavailable';
+        }
+        setSyncSummary({ success: false, errorMsg: friendlyMsg });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } else {
+        setSyncSummary({
+          success: true,
+          uploaded: status.rowsUploaded,
+          downloaded: status.rowsDownloaded,
+          durationSec,
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (err: any) {
+      let friendlyMsg = err?.message || 'Synchronization failed';
+      if (friendlyMsg.includes('Network') || friendlyMsg.includes('Fetch') || friendlyMsg.includes('network') || friendlyMsg.includes('Failed to fetch')) {
+        friendlyMsg = 'No internet connection';
+      }
+      setSyncSummary({ success: false, errorMsg: friendlyMsg });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const hasData = users.length > 0 || ipos.length > 0 || bankAccounts.length > 0 || applications.length > 0;
@@ -235,7 +308,7 @@ export default function SettingsScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Could not create or share the export file.';
-      Alert.alert('Export Failed', message);
+      showError('Export Failed', message);
     } finally {
       setBusy(false);
     }
@@ -264,35 +337,33 @@ export default function SettingsScreen() {
       const stats = isJSON ? await importJSON(text) : await importCSV(text);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert(
+      showSuccess(
         'Import Complete',
         `Successfully imported:\n• ${stats.users} user(s)\n• ${stats.ipos} IPO(s)\n• ${stats.applications} application(s)\n\nExisting records were kept.`,
       );
     } catch (e: any) {
-      Alert.alert('Import Failed', e?.message ?? 'Could not read or parse the file. Make sure it was exported from this app.');
+      showError('Import Failed', e?.message ?? 'Could not read or parse the file. Make sure it was exported from this app.');
     } finally {
       setBusy(false);
     }
   };
 
   const handleClear = () => {
-    if (Platform.OS === 'web') {
-      if ((globalThis as any).confirm?.('Permanently delete all data? This cannot be undone.')) {
+    showConfirm({
+      title: 'Clear All Data',
+      message: 'Permanently deletes all users, IPOs, and applications. Cannot be undone.',
+      confirmText: 'Clear Everything',
+      isDanger: true,
+      onConfirm: async () => {
         setBusy(true);
-        clearAllData()
-          .then(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error))
-          .finally(() => setBusy(false));
-      }
-      return;
-    }
-    Alert.alert('Clear All Data', 'Permanently deletes all users, IPOs, and applications. Cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear Everything', style: 'destructive', onPress: async () => {
-        setBusy(true);
-        try { await clearAllData(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); }
-        finally { setBusy(false); }
-      }},
-    ]);
+        try {
+          await clearAllData();
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
   };
 
   const stats = [
@@ -416,24 +487,139 @@ export default function SettingsScreen() {
           )}
         </View>
 
-        {/* 4. Synchronization */}
-        <Text style={[styles.sectionHeader, { color: colors.mutedForeground }]}>SYNCHRONIZATION</Text>
-        <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 16 }]}>
-          <ToggleRow
-            icon="refresh-cw"
-            title="Auto Sync"
-            subtitle="Automatically back up to cloud in the background"
-            value={autoSync}
-            onValueChange={handleToggleAutoSync}
-          />
-          {autoSync && (
-            <SettingRow
-              icon="clock"
-              title="Sync Interval"
-              subtitle={`Every ${syncInterval} minutes`}
-              onPress={handleNextInterval}
-            />
+        {/* 4. Synchronization / Cloud Sync */}
+        <Text style={[styles.sectionHeader, { color: colors.mutedForeground }]}>CLOUD SYNC</Text>
+        <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 16, padding: 18, gap: 14 }]}>
+          {/* Status Row */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={{
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                backgroundColor: syncStatus.state === 'Syncing' || isSyncing
+                  ? '#EAB308'
+                  : syncStatus.state === 'Error'
+                  ? colors.destructive
+                  : session
+                  ? '#22C55E'
+                  : colors.mutedForeground
+              }} />
+              <Text style={{ fontFamily: 'DMSans_600SemiBold', fontSize: 14, color: colors.foreground }}>Status</Text>
+            </View>
+            <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 13, color: colors.primary }}>
+              {syncStatus.state === 'Syncing' || isSyncing
+                ? 'Syncing...'
+                : syncStatus.state === 'Error'
+                ? 'Sync Failed'
+                : session
+                ? 'Synced'
+                : 'Offline'}
+            </Text>
+          </View>
+
+          {/* Last Successful Sync Row */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 13, color: colors.mutedForeground }}>Last Successful Sync</Text>
+            <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 13, color: colors.foreground }}>
+              {syncStatus.lastSyncTimestamp ? formatLastSyncTime(syncStatus.lastSyncTimestamp) : 'Never'}
+            </Text>
+          </View>
+
+          {/* Pending Changes Row */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 13, color: colors.mutedForeground }}>Pending Changes</Text>
+            <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 13, color: colors.foreground }}>
+              {syncStatus.pendingCount ?? 0}
+            </Text>
+          </View>
+
+          {/* Sync Summary Result Banner */}
+          {syncSummary && (
+            <View style={{
+              backgroundColor: syncSummary.success ? colors.primary + '15' : colors.destructiveBg,
+              borderColor: syncSummary.success ? colors.primary + '40' : colors.destructive + '40',
+              borderWidth: 1,
+              borderRadius: 12,
+              padding: 12,
+              gap: 4,
+            }}>
+              {syncSummary.success ? (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Feather name="check-circle" size={15} color={colors.primary} />
+                    <Text style={{ fontFamily: 'DMSans_600SemiBold', fontSize: 13, color: colors.primary }}>✓ Sync completed</Text>
+                  </View>
+                  <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 12, color: colors.foreground, marginTop: 2 }}>
+                    Uploaded: {syncSummary.uploaded ?? 0}  ·  Downloaded: {syncSummary.downloaded ?? 0}  ·  Completed in {syncSummary.durationSec}s
+                  </Text>
+                </>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                    <Feather name="alert-circle" size={15} color={colors.destructive} />
+                    <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 13, color: colors.destructive }}>
+                      {syncSummary.errorMsg}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={handleSyncNow} style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
+                    <Text style={{ fontFamily: 'DMSans_600SemiBold', fontSize: 12, color: colors.destructive, textDecorationLine: 'underline' }}>
+                      Retry
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
           )}
+
+          {/* Sync Now Button */}
+          <TouchableOpacity
+            onPress={handleSyncNow}
+            disabled={isSyncing || syncStatus.state === 'Syncing'}
+            style={{
+              height: 46,
+              borderRadius: 12,
+              backgroundColor: colors.primary,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              opacity: isSyncing || syncStatus.state === 'Syncing' ? 0.6 : 1,
+              marginTop: 4,
+            }}
+            activeOpacity={0.8}
+          >
+            {isSyncing || syncStatus.state === 'Syncing' ? (
+              <>
+                <ActivityIndicator color="#fff" size="small" />
+                <Text style={{ fontFamily: 'DMSans_600SemiBold', fontSize: 14, color: '#fff' }}>Syncing...</Text>
+              </>
+            ) : (
+              <>
+                <Feather name="refresh-cw" size={16} color="#fff" />
+                <Text style={{ fontFamily: 'DMSans_600SemiBold', fontSize: 14, color: '#fff' }}>Sync Now</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          {/* Auto Sync Toggle & Interval */}
+          <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, marginTop: 4 }}>
+            <ToggleRow
+              icon="refresh-cw"
+              title="Auto Sync"
+              subtitle="Automatically back up to cloud in the background"
+              value={autoSync}
+              onValueChange={handleToggleAutoSync}
+            />
+            {autoSync && (
+              <SettingRow
+                icon="clock"
+                title="Sync Interval"
+                subtitle={`Every ${syncInterval} minutes`}
+                onPress={handleNextInterval}
+              />
+            )}
+          </View>
         </View>
 
         {/* 5. Data Management */}

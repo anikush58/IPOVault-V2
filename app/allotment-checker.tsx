@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
+import { useDialog } from '@/context/DialogContext';
 import { useDB, type ApplicationWithDetails, type ApplicationStatus } from '@/context/DBContext';
 import { checkAllotment, useGetRegistrarHealth, useSolveAllotmentSession } from '@workspace/api-client-react';
 
@@ -77,6 +78,8 @@ export default function AllotmentCheckerScreen() {
 
   const regHealth = getRegistrarHealthStatus();
 
+  const { showError } = useDialog();
+
   const handleSolveCaptcha = async () => {
     if (!sessionId || !captchaSolution.trim()) return;
     setSolvingCaptcha(true);
@@ -95,11 +98,11 @@ export default function AllotmentCheckerScreen() {
         // Resume checking from current index!
         setChecking(true);
       } else {
-        Alert.alert('Verification Failed', 'Incorrect CAPTCHA solution, please try again.');
+        showError('Verification Failed', 'Incorrect CAPTCHA solution, please try again.');
       }
     } catch (err) {
       console.error('Failed to solve captcha:', err);
-      Alert.alert('Error', 'Unable to verify CAPTCHA. Please check your network connection.');
+      showError('Error', 'Unable to verify CAPTCHA. Please check your network connection.');
     } finally {
       setSolvingCaptcha(false);
     }

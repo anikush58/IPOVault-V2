@@ -15,6 +15,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
+import { useDialog } from '@/context/DialogContext';
 import { useDB, type ApplicationWithDetails } from '@/context/DBContext';
 import { useRouter } from 'expo-router';
 import { formatCurrency } from '@/utils/formatters';
@@ -46,6 +47,7 @@ const sc = StyleSheet.create({
 
 export default function FormsScreen() {
   const colors = useColors();
+  const { showConfirm, showSuccess, showError } = useDialog();
   const router = useRouter();
   const { users, ipos, applications, bankAccounts, addBulkApplications, updateApplication } = useDB();
   const insets = useSafeAreaInsets();
@@ -106,32 +108,31 @@ export default function FormsScreen() {
   const balanceAfter = selectedBank ? selectedBank.balance - blockedNow - willBlock : 0;
 
   const handleBulkCreate = async () => {
-    if (!bulkIPOId) { Alert.alert('', 'Please select an IPO first.'); return; }
-    if (selectedUserIds.size === 0) { Alert.alert('', 'Select at least one user.'); return; }
+    if (!bulkIPOId) { showError('', 'Please select an IPO first.'); return; }
+    if (selectedUserIds.size === 0) { showError('', 'Select at least one user.'); return; }
     setBulkLoading(true);
     try {
       await addBulkApplications(bulkIPOId, Array.from(selectedUserIds), bulkBankName ?? undefined, bulkUPIApp ?? undefined);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Done', `Created applications for ${selectedUserIds.size} user(s) under ${selectedIPO?.ipo_name}.`);
+      showSuccess('Done', `Created applications for ${selectedUserIds.size} user(s) under ${selectedIPO?.ipo_name}.`);
       setSelectedUserIds(new Set());
     } catch {
-      Alert.alert('Error', 'Failed to create applications.');
+      showError('Error', 'Failed to create applications.');
     } finally {
       setBulkLoading(false);
     }
   };
 
   const handleQuickStatus = (app: ApplicationWithDetails, newStatus: 'Allotted' | 'Not Allotted') => {
-    Alert.alert(`Mark as ${newStatus}?`, `${app.user_name} — ${app.ipo_name}`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: newStatus,
-        onPress: async () => {
-          await updateApplication(app.id, newStatus);
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        },
+    showConfirm({
+      title: `Mark as ${newStatus}?`,
+      message: `${app.user_name} — ${app.ipo_name}`,
+      confirmText: newStatus,
+      onConfirm: async () => {
+        await updateApplication(app.id, newStatus);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       },
-    ]);
+    });
   };
 
   return (

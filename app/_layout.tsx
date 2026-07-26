@@ -17,6 +17,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { DBProvider } from '@/context/DBContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
+import { DialogProvider } from '@/context/DialogContext';
 import { setBaseUrl } from '@workspace/api-client-react';
 import Constants from 'expo-constants';
 import { FeatureFlags } from '@/constants/FeatureFlags';
@@ -54,6 +55,7 @@ function RootLayoutNav() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="applications" options={{ headerShown: false }} />
         <Stack.Screen name="ipos" options={{ headerShown: false }} />
+        <Stack.Screen name="auth" options={{ headerShown: false }} />
         {FeatureFlags.ENABLE_AUTO_ALLOTMENT && (
           <Stack.Screen name="allotment-checker" options={{ headerShown: false }} />
         )}
@@ -92,15 +94,17 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <ThemeProvider>
-          <QueryClientProvider client={queryClient}>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <AuthProvider>
-                <DBProvider>
-                  <RootLayoutNav />
-                </DBProvider>
-              </AuthProvider>
-            </GestureHandlerRootView>
-          </QueryClientProvider>
+          <DialogProvider>
+            <QueryClientProvider client={queryClient}>
+              <GestureHandlerRootView style={{ flex: 1 }}>
+                <AuthProvider>
+                  <DBProvider>
+                    <RootLayoutNav />
+                  </DBProvider>
+                </AuthProvider>
+              </GestureHandlerRootView>
+            </QueryClientProvider>
+          </DialogProvider>
         </ThemeProvider>
       </ErrorBoundary>
     </SafeAreaProvider>

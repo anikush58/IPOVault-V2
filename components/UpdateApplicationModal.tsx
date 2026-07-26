@@ -16,6 +16,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
+import { useDialog } from '@/context/DialogContext';
 import { useDB, type ApplicationStatus, type ApplicationWithDetails } from '@/context/DBContext';
 import { StatusBadge } from './StatusBadge';
 import { formatCurrency, todayISO } from '@/utils/formatters';
@@ -54,6 +55,8 @@ export function UpdateApplicationModal({ application: app, onClose }: Props) {
   const previewNet = isSold ? calcNetProfit(previewPL, parseFloat(tax || '0'), parseFloat(userCut || '0')) : 0;
   const isProfit = previewNet >= 0;
 
+  const { showConfirm, showError } = useDialog();
+
   const handleSave = async () => {
     if (!app) return;
     setSaving(true);
@@ -62,7 +65,7 @@ export function UpdateApplicationModal({ application: app, onClose }: Props) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onClose();
     } catch {
-      Alert.alert('Error', 'Failed to update.');
+      showError('Error', 'Failed to update.');
     } finally {
       setSaving(false);
     }
@@ -70,16 +73,17 @@ export function UpdateApplicationModal({ application: app, onClose }: Props) {
 
   const handleDelete = () => {
     if (!app) return;
-    Alert.alert('Delete Application', `Remove ${app.user_name}'s application for ${app.ipo_name}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: async () => {
-          await deleteApplication(app.id);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          onClose();
-        }
+    showConfirm({
+      title: 'Delete Application',
+      message: `Remove ${app.user_name}'s application for ${app.ipo_name}?`,
+      confirmText: 'Delete',
+      isDanger: true,
+      onConfirm: async () => {
+        await deleteApplication(app.id);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        onClose();
       },
-    ]);
+    });
   };
 
   return (

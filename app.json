@@ -18,7 +18,21 @@
       "bundleIdentifier": "com.ipovault.app"
     },
     "android": {
-      "package": "com.ipovault.app"
+      "package": "com.ipovault.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "ipovault"
+            }
+          ]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/images/favicon.png"

@@ -16,6 +16,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
+import { useDialog } from '@/context/DialogContext';
 import { useDB, type User } from '@/context/DBContext';
 
 const BROKERS = ['Dhan', 'Upstox', 'Groww', 'Angel One', 'Fyers', 'Zerodha', 'HDFC Securities', 'ICICI Direct', 'Paytm Money'];
@@ -90,8 +91,10 @@ export function AddUserModal({ visible, user, onClose }: Props) {
     }
   }, [user, visible]);
 
+  const { showError } = useDialog();
+
   const handleSave = async () => {
-    if (!name.trim()) { Alert.alert('Required', 'Please enter a name.'); return; }
+    if (!name.trim()) { showError('Required', 'Please enter a name.'); return; }
     setSaving(true);
     try {
       const data = {
@@ -108,7 +111,7 @@ export function AddUserModal({ visible, user, onClose }: Props) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onClose();
     } catch {
-      Alert.alert('Error', 'Failed to save. Please try again.');
+      showError('Error', 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }

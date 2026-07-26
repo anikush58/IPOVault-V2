@@ -15,6 +15,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
+import { useDialog } from '@/context/DialogContext';
 import { useDB, type User } from '@/context/DBContext';
 import { UserCard } from '@/components/UserCard';
 import { AddUserModal } from '@/components/AddUserModal';
@@ -23,6 +24,7 @@ export default function UsersScreen() {
   const colors = useColors();
   const router = useRouter();
   const { users, applications, isLoading, refresh, deleteUser } = useDB();
+  const { showConfirm, showError } = useDialog();
   const insets = useSafeAreaInsets();
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -37,30 +39,20 @@ export default function UsersScreen() {
   };
 
   const handleDelete = (user: User) => {
-    const doDelete = async () => {
-      try {
-        await deleteUser(user.id);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      } catch (e) {
-        Alert.alert('Error', 'Failed to delete user.');
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      // Browser Alert.alert only shows OK; use window.confirm instead
-      if ((globalThis as any).confirm?.(`Remove ${user.name} and all their applications?`)) {
-        doDelete();
-      }
-    } else {
-      Alert.alert(
-        'Delete User',
-        `Remove ${user.name} and all their applications?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: doDelete },
-        ],
-      );
-    }
+    showConfirm({
+      title: 'Delete User',
+      message: `Remove ${user.name} and all their applications?`,
+      confirmText: 'Delete',
+      isDanger: true,
+      onConfirm: async () => {
+        try {
+          await deleteUser(user.id);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        } catch {
+          showError('Error', 'Failed to delete user.');
+        }
+      },
+    });
   };
 
   return (

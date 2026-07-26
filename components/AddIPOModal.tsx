@@ -16,6 +16,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
+import { useDialog } from '@/context/DialogContext';
 import { useDB } from '@/context/DBContext';
 import { formatCurrency, todayISO } from '@/utils/formatters';
 import { fetchIPODetails } from '@workspace/api-client-react';
@@ -62,9 +63,11 @@ export function AddIPOModal({ visible, onClose }: Props) {
     setRegistrar(''); setExchange(''); setIssueType('Mainboard');
   };
 
+  const { showError } = useDialog();
+
   const handleFetchDetails = async () => {
     if (!name.trim()) {
-      Alert.alert('Required', 'Please enter an IPO / Company Name first.');
+      showError('Required', 'Please enter an IPO / Company Name first.');
       return;
     }
     setFetching(true);
@@ -85,7 +88,7 @@ export function AddIPOModal({ visible, onClose }: Props) {
       }
     } catch (err: any) {
       console.error(err);
-      Alert.alert('Fetch Failed', err?.message || 'Could not fetch details. You can still enter them manually.');
+      showError('Fetch Failed', err?.message || 'Could not fetch details. You can still enter them manually.');
     } finally {
       setFetching(false);
     }
@@ -93,13 +96,13 @@ export function AddIPOModal({ visible, onClose }: Props) {
 
   const handleSave = async () => {
     if (!name.trim() || !price || !qty) {
-      Alert.alert('Required', 'Please fill in IPO name, cut-off price, and lot size.');
+      showError('Required', 'Please fill in IPO name, cut-off price, and lot size.');
       return;
     }
     const parsedPrice = parseFloat(price);
     const parsedQty = parseInt(qty, 10);
-    if (isNaN(parsedPrice) || parsedPrice <= 0) { Alert.alert('Invalid', 'Enter a valid cut-off price.'); return; }
-    if (isNaN(parsedQty) || parsedQty <= 0) { Alert.alert('Invalid', 'Enter a valid lot size.'); return; }
+    if (isNaN(parsedPrice) || parsedPrice <= 0) { showError('Invalid', 'Enter a valid cut-off price.'); return; }
+    if (isNaN(parsedQty) || parsedQty <= 0) { showError('Invalid', 'Enter a valid lot size.'); return; }
 
     setSaving(true);
     try {
@@ -119,7 +122,7 @@ export function AddIPOModal({ visible, onClose }: Props) {
       resetForm();
       onClose();
     } catch {
-      Alert.alert('Error', 'Failed to add IPO. Please try again.');
+      showError('Error', 'Failed to add IPO. Please try again.');
     } finally {
       setSaving(false);
     }

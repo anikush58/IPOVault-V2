@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Crypto from 'expo-crypto';
 import { UserRepository, IPORepository, ApplicationRepository, BankRepository } from '@/db/repositories';
+import { syncStore } from '@/services/sync/syncStatus';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -178,6 +179,17 @@ function DBProviderInner({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refresh();
+  }, [refresh]);
+
+  // Automatically refresh UI state when cloud sync pipeline finishes
+  useEffect(() => {
+    let prevSyncState = syncStore.getStatus().state;
+    return syncStore.subscribe((status) => {
+      if (prevSyncState === 'Syncing' && status.state === 'Idle') {
+        refresh();
+      }
+      prevSyncState = status.state;
+    });
   }, [refresh]);
 
   // ── User CRUD ──────────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
+import { useDialog } from '@/context/DialogContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useDB, type BankAccount } from '@/context/DBContext';
 import { KPICard } from '@/components/KPICard';
@@ -55,14 +56,16 @@ function BankModal({
     }
   }, [visible, bank]);
 
+  const { showError } = useDialog();
+
   const handleSave = () => {
     const trimmed = name.trim();
     const num = parseFloat(balance.replace(/,/g, ''));
     if (isAdd && !trimmed) {
-      Alert.alert('', 'Enter a bank name.'); return;
+      showError('Required', 'Enter a bank name.'); return;
     }
     if (isNaN(num) || num < 0) {
-      Alert.alert('', 'Enter a valid balance amount.'); return;
+      showError('Invalid', 'Enter a valid balance amount.'); return;
     }
     onSave(trimmed, num);
   };
@@ -276,16 +279,19 @@ export default function BanksScreen() {
     setModalVisible(true);
   };
 
+  const { showConfirm } = useDialog();
+
   const handleDelete = (bank: BankAccount) => {
-    Alert.alert('Delete Bank Account', `Remove "${bank.bank_name}" from your tracked accounts?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: async () => {
-          await deleteBankAccount(bank.id);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        },
+    showConfirm({
+      title: 'Delete Bank Account',
+      message: `Remove "${bank.bank_name}" from your tracked accounts?`,
+      confirmText: 'Delete',
+      isDanger: true,
+      onConfirm: async () => {
+        await deleteBankAccount(bank.id);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       },
-    ]);
+    });
   };
 
   const handleSave = async (name: string, balance: number) => {

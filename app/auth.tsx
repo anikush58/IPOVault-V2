@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/sync/supabase';
 import { useColors } from '@/hooks/useColors';
+import { useAuth } from '@/context/AuthContext';
+import { useDialog } from '@/context/DialogContext';
 import { Feather } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
-import * as Linking from 'expo-linking';
 import { makeRedirectUri } from 'expo-auth-session';
 import * as QueryParams from 'expo-auth-session/build/QueryParams';
 
@@ -15,6 +17,7 @@ WebBrowser.maybeCompleteAuthSession();
 export default function AuthScreen() {
   const colors = useColors();
   const router = useRouter();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,6 +34,14 @@ export default function AuthScreen() {
     }
   }
 
+  useEffect(() => {
+    if (user) {
+      handleNavigateBack();
+    }
+  }, [user]);
+
+  const { showError, showSuccess } = useDialog();
+
   async function signInWithEmail() {
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({
@@ -39,7 +50,7 @@ export default function AuthScreen() {
     });
 
     if (error) {
-      Alert.alert('Sign In Failed', error.message);
+      showError('Sign In Failed', error.message);
     } else {
       handleNavigateBack();
     }
@@ -54,9 +65,9 @@ export default function AuthScreen() {
     });
 
     if (error) {
-      Alert.alert('Sign Up Failed', error.message);
+      showError('Sign Up Failed', error.message);
     } else {
-      Alert.alert('Success', 'Please check your inbox for email verification!');
+      showSuccess('Success', 'Please check your inbox for email verification!');
       setIsLogin(true);
     }
     setLoading(false);
@@ -66,11 +77,8 @@ export default function AuthScreen() {
     setLoading(true);
     const redirectTo = makeRedirectUri({
       scheme: 'ipovault',
+      path: 'auth/callback'
     });
-
-    console.log("========== GOOGLE OAUTH ==========");
-    Alert.alert("Redirect URI", redirectTo);
-    console.log("==================================");
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -80,10 +88,8 @@ export default function AuthScreen() {
       },
     });
 
-    console.log("OAuth URL:", data?.url);
-
     if (error) {
-      Alert.alert('Google Sign-In Failed', error.message);
+      showError('Google Sign-In Failed', error.message);
       setLoading(false);
       return;
     }
@@ -91,6 +97,7 @@ export default function AuthScreen() {
     if (data?.url) {
       try {
         const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+        WebBrowser.dismissBrowser();
         if (res.type === 'success') {
           const { url } = res;
 
@@ -110,11 +117,11 @@ export default function AuthScreen() {
             if (error) throw error;
             handleNavigateBack();
           } else {
-            Alert.alert('Auth Error', 'No session code or tokens returned in authentication response.');
+            showError('Auth Error', 'No session code or tokens returned in authentication response.');
           }
         }
       } catch (err: any) {
-        Alert.alert('Google Sign-In Failed', err?.message || 'Failed to open browser');
+        showError('Google Sign-In Failed', err?.message || 'Failed to open browser');
       }
     }
     setLoading(false);
@@ -123,12 +130,27 @@ export default function AuthScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-        <View>
+        <LinearGradient
+          colors={[colors.primary + '22', colors.primary + '00']}
+          start={{ x: 1, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.headerGlow}
+          pointerEvents="none"
+        />
+        <TouchableOpacity
+          onPress={handleNavigateBack}
+          style={[styles.backBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          hitSlop={8}
+        >
+          <Feather name="chevron-left" size={20} color={colors.foreground} />
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
           <Text style={[styles.headerEyebrow, { color: colors.primary }]}>Account</Text>
           <Text style={[styles.headerTitle, { color: colors.foreground }]}>
             {isLogin ? 'Welcome Back' : 'Create Account'}
           </Text>
         </View>
+        <View style={styles.headerRightPlaceholder} />
       </View>
 
       <View style={styles.content}>
@@ -211,6 +233,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 14,
     borderBottomWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerGlow: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerRightPlaceholder: {
+    width: 36,
   },
   headerEyebrow: {
     fontSize: 11,
@@ -218,12 +262,14 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     textTransform: 'uppercase',
     marginBottom: 2,
+    textAlign: 'center',
   },
   headerTitle: {
     fontSize: 30,
     fontFamily: 'DMSans_700Bold',
     letterSpacing: -0.8,
     lineHeight: 34,
+    textAlign: 'center',
   },
   content: {
     flex: 1,
