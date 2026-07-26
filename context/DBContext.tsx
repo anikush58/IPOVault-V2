@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Crypto from 'expo-crypto';
 import { UserRepository, IPORepository, ApplicationRepository, BankRepository } from '@/db/repositories';
+import { logSyncEvent } from '@/db/syncLogger';
 import { syncStore } from '@/services/sync/syncStatus';
 
 // ── Types ────────────────────────────────────────────────────────────────────
