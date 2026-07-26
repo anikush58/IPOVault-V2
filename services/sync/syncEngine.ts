@@ -72,35 +72,54 @@ export class SyncEngine {
       const updates = pendingItems.filter(i => i.action === 'UPDATE');
       const tables = [...new Set(pendingItems.map(i => i.table_name))];
 
+      const totalFound = pendingItems.length;
+      let totalAttempted = 0;
+      let totalSuccessful = 0;
+      let totalFailed = 0;
+
       // 3. Batched Inserts & Deletes
       for (const table of tables) {
         const tableInserts = inserts.filter(i => i.table_name === table);
         if (tableInserts.length > 0) {
+          totalAttempted += tableInserts.length;
+          for (const item of tableInserts) {
+            console.log(`[Queue Item] Queue ID: ${item.id} | Action: INSERT | Local: ${item.table_name} | Remote: ${getSupabaseTableName(item.table_name)}`);
+          }
           const payloads = tableInserts.map(i => JSON.parse(i.payload));
           const result = await this.pushLayer.pushBatchedInserts(table, payloads, userId);
           if (result.success) {
             for (const item of tableInserts) await this.queue.markSuccess(item.id);
             rowsUploaded += tableInserts.length;
+            totalSuccessful += tableInserts.length;
           } else {
             for (const item of tableInserts) await this.queue.markFailed(item.id, new Error('Insert failed'), item.retry_count);
+            totalFailed += tableInserts.length;
           }
         }
         
         const tableDeletes = deletes.filter(i => i.table_name === table);
         if (tableDeletes.length > 0) {
+          totalAttempted += tableDeletes.length;
+          for (const item of tableDeletes) {
+            console.log(`[Queue Item] Queue ID: ${item.id} | Action: DELETE | Local: ${item.table_name} | Remote: ${getSupabaseTableName(item.table_name)}`);
+          }
           const ids = tableDeletes.map(i => i.record_id);
           const result = await this.pushLayer.pushBatchedDeletes(table, ids);
           if (result.success) {
             for (const item of tableDeletes) await this.queue.markSuccess(item.id);
             rowsUploaded += tableDeletes.length;
+            totalSuccessful += tableDeletes.length;
           } else {
             for (const item of tableDeletes) await this.queue.markFailed(item.id, new Error('Delete failed'), item.retry_count);
+            totalFailed += tableDeletes.length;
           }
         }
       }
 
       // 4. Sequential Updates (for optimistic concurrency)
       for (const item of updates) {
+        totalAttempted++;
+        console.log(`[Queue Item] Queue ID: ${item.id} | Action: UPDATE | Local: ${item.table_name} | Remote: ${getSupabaseTableName(item.table_name)}`);
         await this.queue.markProcessing(item.id);
         
         let payloadObj: any = {};
@@ -115,8 +134,10 @@ export class SyncEngine {
         if (result.success) {
           await this.queue.markSuccess(item.id);
           rowsUploaded++;
+          totalSuccessful++;
         } else if (result.retryable) {
           await this.queue.markFailed(item.id, new Error('Network error'), item.retry_count);
+          totalFailed++;
         } else if (result.conflict) {
           conflictsEncountered++;
           const resolution = await this.conflictResolver.resolveSingleConflict(payloadObj, result.remoteRow);
@@ -133,11 +154,21 @@ export class SyncEngine {
           }
         } else {
           await this.queue.markFailed(item.id, new Error('Push failed'), item.retry_count);
+          totalFailed++;
         }
       }
 
       // Update remaining pending count
       const remainingItems = await this.queue.getPendingItems();
+      syncStore.update({ pendingCount: remainingItems.length });
+
+      console.log('--- Push Stage Summary ---');
+      console.log(`Queue Items Found: ${totalFound}`);
+      console.log(`Queue Items Attempted: ${totalAttempted}`);
+      console.log(`Queue Items Successful: ${totalSuccessful}`);
+      console.log(`Queue Items Failed: ${totalFailed}`);
+      console.log(`Queue Items Remaining: ${remainingItems.length}`);
+      console.log('--------------------------');
       syncStore.update({ pendingCount: remainingItems.length });
 
       // 5. Pull latest data

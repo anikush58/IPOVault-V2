@@ -5,57 +5,129 @@ import { getSupabaseTableName } from './constants';
 
 const ALLOWED_COLUMNS: Record<string, Set<string>> = {
   users_table: new Set([
-    'id', 'owner_id', 'name', 'pan_number', 'broker', 'tpin',
-    'upi_app', 'default_amount_blocked', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
+    'id', 'name', 'pan', 'upi_id', 'dp_id', 'client_id', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
   ]),
   bank_accounts: new Set([
-    'id', 'owner_id', 'bank_name', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
+    'id', 'user_id', 'upi_id', 'account_number', 'ifsc', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
   ]),
   ipo_listings: new Set([
-    'id', 'owner_id', 'ipo_name', 'company_name', 'buy_price', 'quantity',
-    'price_band_min', 'price_band_max', 'lot_size', 'open_date', 'close_date',
-    'listing_date', 'archived', 'registrar', 'exchange', 'issue_type',
-    'is_favorite', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
+    'id', 'company_name', 'symbol', 'lot_size', 'listing_date', 'status', 'created_at', 'updated_at'
   ]),
   ipo_applications: new Set([
-    'id', 'user_id', 'ipo_id', 'status', 'sell_price', 'sale_date',
-    'tax', 'user_cut', 'is_favorite', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
+    'id', 'user_id', 'ipo_id', 'bank_id', 'status', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
   ]),
 };
 
-function sanitizePayload(tableName: string, payload: any, userId?: string): any {
-  const item: any = { ...payload };
+export function transformForRemote(tableName: string, item: any, userId?: string): any {
+  if (!item) return item;
+  const transformed: any = {};
 
-  // 1. Ownership fields
-  if (userId) {
-    if (!item.owner_id && tableName !== 'ipo_applications') item.owner_id = userId;
-  }
+  if (tableName === 'users_table') {
+    if (item.id !== undefined) transformed.id = item.id;
+    if (item.name !== undefined) transformed.name = item.name;
+    if (item.pan_number !== undefined) transformed.pan = item.pan_number;
+    else if (item.pan !== undefined) transformed.pan = item.pan;
 
-  // 2. Field transformations & mappings
-  if (tableName === 'ipo_listings') {
-    if (item.ipo_name && !item.company_name) item.company_name = item.ipo_name;
+    if (item.upi_app !== undefined) transformed.upi_id = item.upi_app;
+    else if (item.upi_id !== undefined) transformed.upi_id = item.upi_id;
+
+    if (item.dp_id !== undefined) transformed.dp_id = item.dp_id;
+    if (item.client_id !== undefined) transformed.client_id = item.client_id;
+
+    if (item.sync_version !== undefined) transformed.sync_version = item.sync_version;
+    if (item.created_at !== undefined) transformed.created_at = item.created_at;
+    if (item.updated_at !== undefined) transformed.updated_at = item.updated_at;
+    if (item.deleted_at !== undefined) transformed.deleted_at = item.deleted_at;
+
+    if (item.broker !== undefined) {
+      console.log(`[transformForRemote] users_table: Local 'broker' ('${item.broker}') has no remote column on 'users'`);
+    }
+    if (item.tpin !== undefined) {
+      console.log(`[transformForRemote] users_table: Local 'tpin' has no remote column on 'users'`);
+    }
+    if (item.default_amount_blocked !== undefined) {
+      console.log(`[transformForRemote] users_table: Local 'default_amount_blocked' has no remote column on 'users'`);
+    }
+  } else if (tableName === 'bank_accounts') {
+    if (item.id !== undefined) transformed.id = item.id;
+    if (item.user_id !== undefined) transformed.user_id = item.user_id;
+    else if (userId) transformed.user_id = userId;
+
+    if (item.bank_name !== undefined) transformed.account_number = item.bank_name;
+    else if (item.account_number !== undefined) transformed.account_number = item.account_number;
+
+    if (item.upi_id !== undefined) transformed.upi_id = item.upi_id;
+    if (item.ifsc !== undefined) transformed.ifsc = item.ifsc;
+
+    if (item.sync_version !== undefined) transformed.sync_version = item.sync_version;
+    if (item.created_at !== undefined) transformed.created_at = item.created_at;
+    if (item.updated_at !== undefined) transformed.updated_at = item.updated_at;
+    if (item.deleted_at !== undefined) transformed.deleted_at = item.deleted_at;
+
+    if (item.balance !== undefined) {
+      console.log(`[transformForRemote] bank_accounts: Local 'balance' (${item.balance}) has no remote column on 'banks'`);
+    }
+  } else if (tableName === 'ipo_listings') {
+    if (item.id !== undefined) transformed.id = item.id;
+
+    if (item.ipo_name !== undefined) transformed.company_name = item.ipo_name;
+    else if (item.company_name !== undefined) transformed.company_name = item.company_name;
+
+    if (item.symbol !== undefined && item.symbol !== null && item.symbol !== '') {
+      transformed.symbol = item.symbol;
+    }
+
+    if (item.quantity !== undefined) transformed.lot_size = item.quantity;
+    else if (item.lot_size !== undefined) transformed.lot_size = item.lot_size;
+
+    if (item.listing_date !== undefined) transformed.listing_date = item.listing_date;
+    if (item.status !== undefined) transformed.status = item.status;
+
+    if (item.created_at !== undefined) transformed.created_at = item.created_at;
+    if (item.updated_at !== undefined) transformed.updated_at = item.updated_at;
+
     if (item.buy_price !== undefined) {
-      if (item.price_band_min === undefined) item.price_band_min = item.buy_price;
-      if (item.price_band_max === undefined) item.price_band_max = item.buy_price;
+      console.log(`[transformForRemote] ipo_listings: Local 'buy_price' (${item.buy_price}) has no remote column on 'ipo_master'`);
     }
-    if (item.quantity !== undefined && item.lot_size === undefined) {
-      item.lot_size = item.quantity;
+  } else if (tableName === 'ipo_applications') {
+    if (item.id !== undefined) transformed.id = item.id;
+    if (item.user_id !== undefined) transformed.user_id = item.user_id;
+    if (item.ipo_id !== undefined) transformed.ipo_id = item.ipo_id;
+    if (item.bank_id !== undefined) transformed.bank_id = item.bank_id;
+    if (item.status !== undefined) transformed.status = item.status;
+
+    if (item.sync_version !== undefined) transformed.sync_version = item.sync_version;
+    if (item.created_at !== undefined) transformed.created_at = item.created_at;
+    if (item.updated_at !== undefined) transformed.updated_at = item.updated_at;
+    if (item.deleted_at !== undefined) transformed.deleted_at = item.deleted_at;
+
+    if (item.sell_price !== undefined) {
+      console.log(`[transformForRemote] ipo_applications: Local 'sell_price' has no remote column on 'applications'`);
     }
+    if (item.tax !== undefined) {
+      console.log(`[transformForRemote] ipo_applications: Local 'tax' has no remote column on 'applications'`);
+    }
+    if (item.user_cut !== undefined) {
+      console.log(`[transformForRemote] ipo_applications: Local 'user_cut' has no remote column on 'applications'`);
+    }
+  } else {
+    return { ...item };
   }
 
-  // 3. Strict Column Whitelist Filtering (strips non-existent remote columns)
+  return transformed;
+}
+
+function sanitizePayload(tableName: string, payload: any): any {
   const allowed = ALLOWED_COLUMNS[tableName];
-  if (allowed) {
-    const cleanItem: any = {};
-    for (const key of Object.keys(item)) {
-      if (allowed.has(key)) {
-        cleanItem[key] = item[key];
-      }
-    }
-    return cleanItem;
-  }
+  if (!allowed) return payload;
 
-  return item;
+  const cleanItem: any = {};
+  for (const key of Object.keys(payload)) {
+    if (allowed.has(key)) {
+      cleanItem[key] = payload[key];
+    }
+  }
+  return cleanItem;
 }
 
 export class SyncPush {
@@ -65,18 +137,32 @@ export class SyncPush {
     if (payloads.length === 0) return { success: true };
 
     const remoteTable = getSupabaseTableName(tableName);
-    const sanitizedPayloads = payloads.map((p) => sanitizePayload(tableName, p, userId));
 
-    console.log('[DEBUG] Local table:', tableName);
-    console.log('[DEBUG] Remote table:', remoteTable);
-    console.log('[DEBUG] Operation: UPSERT (Batched)');
-    console.log('[DEBUG] Payload count:', sanitizedPayloads.length);
-    console.log('[DEBUG] Sample Payload:', JSON.stringify(sanitizedPayloads[0] ?? {}, null, 2));
+    const transformedPayloads = payloads.map((p) => transformForRemote(tableName, p, userId));
+    const sanitizedPayloads = transformedPayloads.map((p) => sanitizePayload(tableName, p));
 
-    const { error } = await supabase.from(remoteTable).upsert(sanitizedPayloads, { onConflict: 'id' });
+    console.log(`==========`);
+    console.log(`TABLE: ${tableName}`);
+    console.log(`REMOTE TABLE: ${remoteTable}`);
+    console.log(`RAW SQLITE OBJECT:`, JSON.stringify(payloads, null, 2));
+    console.log(`↓`);
+    console.log(`TRANSFORMED OBJECT:`, JSON.stringify(transformedPayloads, null, 2));
+    console.log(`↓`);
+    console.log(`FINAL SANITIZED OBJECT:`, JSON.stringify(sanitizedPayloads, null, 2));
+    console.log(`↓`);
+    console.log(`JSON SENT TO SUPABASE:`, JSON.stringify(sanitizedPayloads, null, 2));
+    console.log(`==========`);
+
+    const { data, error } = await supabase.from(remoteTable).upsert(sanitizedPayloads, { onConflict: 'id' }).select();
+
+    console.log(`[Supabase Response] Data:`, JSON.stringify(data, null, 2));
 
     if (error) {
-      console.error(`[Push] Batched UPSERT error on ${remoteTable}:`, error);
+      console.error(`[Supabase Error] Table '${remoteTable}' UPSERT failed:`);
+      console.error(`  error.code: ${error.code}`);
+      console.error(`  error.message: ${error.message}`);
+      console.error(`  error.details: ${error.details}`);
+      console.error(`  error.hint: ${error.hint}`);
       return { success: false, retryable: true };
     }
     return { success: true };
