@@ -428,6 +428,7 @@ function DBProviderInner({ children }: { children: React.ReactNode }) {
     };
 
     let bankImported = 0; let userCount = 0; let ipoCount = 0; let appCount = 0;
+    let bankQueued = 0; let userQueued = 0; let ipoQueued = 0; let appQueued = 0;
     const userIdMap = new Map<string, string>();
     const ipoIdMap = new Map<string, string>();
     const now = new Date().toISOString();
@@ -435,8 +436,14 @@ function DBProviderInner({ children }: { children: React.ReactNode }) {
     for (const bank of data.banks ?? []) {
       const existing = await db.getFirstAsync('SELECT id FROM bank_accounts WHERE bank_name=?', [bank.bank_name]);
       if (!existing) {
-        await db.runAsync('INSERT INTO bank_accounts (id, bank_name, balance, created_at, updated_at) VALUES (?,?,?,?,?)', [Crypto.randomUUID(), bank.bank_name, bank.balance ?? 0, now, now]);
+        const id = Crypto.randomUUID();
+        const balance = bank.balance ?? 0;
+        await db.runAsync('INSERT INTO bank_accounts (id, bank_name, balance, created_at, updated_at) VALUES (?,?,?,?,?)', [id, bank.bank_name, balance, now, now]);
         bankImported++;
+
+        const payload = { id, bank_name: bank.bank_name, balance, created_at: now, updated_at: now, deleted_at: null };
+        await logSyncEvent(db, 'bank_accounts', id, 'INSERT', payload);
+        bankQueued++;
       }
     }
 
@@ -446,12 +453,29 @@ function DBProviderInner({ children }: { children: React.ReactNode }) {
         userIdMap.set(u.id, existing.id);
       } else {
         const newId = Crypto.randomUUID();
+        const defaultAmount = u.default_amount_blocked ?? 0;
         await db.runAsync(
           'INSERT INTO users_table (id, name,pan_number,broker,tpin,upi_app,bank_name,default_amount_blocked, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-          [newId, u.name, u.pan_number, u.broker, u.tpin, u.upi_app, u.bank_name, u.default_amount_blocked ?? 0, now, now]
+          [newId, u.name, u.pan_number, u.broker, u.tpin, u.upi_app, u.bank_name, defaultAmount, now, now]
         );
         userIdMap.set(u.id, newId);
         userCount++;
+
+        const payload = {
+          id: newId,
+          name: u.name,
+          pan_number: u.pan_number,
+          broker: u.broker,
+          tpin: u.tpin,
+          upi_app: u.upi_app,
+          bank_name: u.bank_name,
+          default_amount_blocked: defaultAmount,
+          created_at: now,
+          updated_at: now,
+          deleted_at: null,
+        };
+        await logSyncEvent(db, 'users_table', newId, 'INSERT', payload);
+        userQueued++;
       }
     }
 
@@ -467,6 +491,24 @@ function DBProviderInner({ children }: { children: React.ReactNode }) {
         );
         ipoIdMap.set(ipo.id, newId);
         ipoCount++;
+
+        const payload = {
+          id: newId,
+          ipo_name: ipo.ipo_name,
+          company_name: ipo.ipo_name,
+          buy_price: ipo.buy_price,
+          quantity: ipo.quantity,
+          open_date: ipo.open_date,
+          close_date: ipo.close_date,
+          listing_date: ipo.listing_date,
+          archived: 0,
+          is_favorite: 0,
+          created_at: now,
+          updated_at: now,
+          deleted_at: null,
+        };
+        await logSyncEvent(db, 'ipo_listings', newId, 'INSERT', payload);
+        ipoQueued++;
       }
     }
 
@@ -475,13 +517,33 @@ function DBProviderInner({ children }: { children: React.ReactNode }) {
       const newIpoId = ipoIdMap.get(app.ipo_id) ?? app.ipo_id;
       const dup = await db.getFirstAsync('SELECT id FROM ipo_applications WHERE user_id=? AND ipo_id=?', [newUserId, newIpoId]);
       if (!dup) {
+        const id = Crypto.randomUUID();
         await db.runAsync(
           'INSERT INTO ipo_applications (id, user_id, ipo_id, status, sell_price, sale_date, tax, user_cut, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-          [Crypto.randomUUID(), newUserId, newIpoId, app.status, app.sell_price, app.sale_date, app.tax, app.user_cut, now, now]
+          [id, newUserId, newIpoId, app.status, app.sell_price, app.sale_date, app.tax, app.user_cut, now, now]
         );
         appCount++;
+
+        const payload = {
+          id,
+          user_id: newUserId,
+          ipo_id: newIpoId,
+          status: app.status,
+          sell_price: app.sell_price,
+          sale_date: app.sale_date,
+          tax: app.tax,
+          user_cut: app.user_cut,
+          created_at: now,
+          updated_at: now,
+          deleted_at: null,
+        };
+        await logSyncEvent(db, 'ipo_applications', id, 'INSERT', payload);
+        appQueued++;
       }
     }
+
+    console.log(`Imported:\nUsers: ${userCount}\nBanks: ${bankImported}\nIPOs: ${ipoCount}\nApplications: ${appCount}`);
+    console.log(`Queued for upload:\nUsers: ${userQueued}\nBanks: ${bankQueued}\nIPOs: ${ipoQueued}\nApplications: ${appQueued}`);
 
     await refresh();
     return { users: userCount, ipos: ipoCount, applications: appCount };

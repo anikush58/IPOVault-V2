@@ -6,7 +6,7 @@ function getCurrentTime() {
   return new Date().toISOString();
 }
 
-async function logSyncEvent(
+export async function logSyncEvent(
   db: SQLiteDatabase,
   tableName: string,
   recordId: string,
