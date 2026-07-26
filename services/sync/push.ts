@@ -3,17 +3,35 @@ import { supabase } from '@/sync/supabase';
 import { PushResult } from './types';
 import { getSupabaseTableName } from './constants';
 
+const ALLOWED_COLUMNS: Record<string, Set<string>> = {
+  users_table: new Set([
+    'id', 'owner_id', 'name', 'pan_number', 'broker', 'tpin',
+    'upi_app', 'default_amount_blocked', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
+  ]),
+  bank_accounts: new Set([
+    'id', 'owner_id', 'bank_name', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
+  ]),
+  ipo_listings: new Set([
+    'id', 'owner_id', 'ipo_name', 'company_name', 'buy_price', 'quantity',
+    'price_band_min', 'price_band_max', 'lot_size', 'open_date', 'close_date',
+    'listing_date', 'archived', 'registrar', 'exchange', 'issue_type',
+    'is_favorite', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
+  ]),
+  ipo_applications: new Set([
+    'id', 'user_id', 'ipo_id', 'status', 'sell_price', 'sale_date',
+    'tax', 'user_cut', 'is_favorite', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
+  ]),
+};
+
 function sanitizePayload(tableName: string, payload: any, userId?: string): any {
-  const item = { ...payload };
+  const item: any = { ...payload };
+
+  // 1. Ownership fields
   if (userId) {
-    if (!item.owner_id) item.owner_id = userId;
-    if (!item.user_id && tableName !== 'ipo_applications') item.user_id = userId;
+    if (!item.owner_id && tableName !== 'ipo_applications') item.owner_id = userId;
   }
-  if (tableName === 'ipo_applications') {
-    if (item.user_id && !item.profile_id) {
-      item.profile_id = item.user_id;
-    }
-  }
+
+  // 2. Field transformations & mappings
   if (tableName === 'ipo_listings') {
     if (item.ipo_name && !item.company_name) item.company_name = item.ipo_name;
     if (item.buy_price !== undefined) {
@@ -24,6 +42,19 @@ function sanitizePayload(tableName: string, payload: any, userId?: string): any 
       item.lot_size = item.quantity;
     }
   }
+
+  // 3. Strict Column Whitelist Filtering (strips non-existent remote columns)
+  const allowed = ALLOWED_COLUMNS[tableName];
+  if (allowed) {
+    const cleanItem: any = {};
+    for (const key of Object.keys(item)) {
+      if (allowed.has(key)) {
+        cleanItem[key] = item[key];
+      }
+    }
+    return cleanItem;
+  }
+
   return item;
 }
 
