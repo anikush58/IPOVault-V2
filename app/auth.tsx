@@ -43,7 +43,10 @@ export default function AuthScreen() {
     const redirectTo = makeRedirectUri({
       scheme: 'ipovault',
       path: 'auth/callback',
+      preferLocalhost: false,
     });
+    console.log("========== OAuth ==========");
+    console.log("Redirect URI:", redirectTo);
 
     try {
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -53,6 +56,9 @@ export default function AuthScreen() {
           skipBrowserRedirect: true,
         },
       });
+      console.log("OAuth URL:", data?.url);
+      console.log("===========================");
+
 
       if (error) {
         showError('Google Sign-In Failed', error.message);
@@ -61,7 +67,14 @@ export default function AuthScreen() {
       }
 
       if (data?.url) {
+        console.log("Opening Browser...");
+
         const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
+        console.log("Auth Session Result:", JSON.stringify(res, null, 2));
+        console.log("Auth Session Type:", res.type);
+
+
         WebBrowser.dismissBrowser();
 
         if (res.type === 'success') {

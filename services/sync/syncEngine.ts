@@ -6,6 +6,32 @@ import { ConflictResolver } from './conflictResolver';
 import { syncStore } from './syncStatus';
 import { getSupabaseTableName } from './constants';
 
+function logQueueItemExecution(
+  item: { id: string; table_name: string; action: string; retry_count: number; payload: string },
+  status: 'SUCCESS' | 'FAILURE' | 'CONFLICT' | 'SKIPPED',
+  errorDetails?: any
+) {
+  let syncVersion: any = 'UNKNOWN';
+  try {
+    const parsed = JSON.parse(item.payload);
+    syncVersion = parsed?.sync_version ?? 'NOT_SET';
+  } catch (e) {
+    // ignore
+  }
+
+  console.log(`\n=================== [QUEUE ITEM EXECUTION LOG] ===================`);
+  console.log(`- Queue ID: ${item.id}`);
+  console.log(`- Table: ${item.table_name}`);
+  console.log(`- Operation (Action): ${item.action}`);
+  console.log(`- Retry Count: ${item.retry_count}`);
+  console.log(`- Sync Version: ${syncVersion}`);
+  console.log(`- Execution Status: ${status}`);
+  if (errorDetails) {
+    console.error(`- Error Details:`, errorDetails);
+  }
+  console.log(`==================================================================\n`);
+}
+
 export class SyncEngine {
   private queue: SyncQueue;
   private pushLayer: SyncPush;
@@ -83,17 +109,20 @@ export class SyncEngine {
         const tableInserts = inserts.filter(i => i.table_name === table);
         if (tableInserts.length > 0) {
           totalAttempted += tableInserts.length;
-          for (const item of tableInserts) {
-            console.log(`[Queue Item] Queue ID: ${item.id} | Action: INSERT | Local: ${item.table_name} | Remote: ${getSupabaseTableName(item.table_name)}`);
-          }
           const payloads = tableInserts.map(i => JSON.parse(i.payload));
           const result = await this.pushLayer.pushBatchedInserts(table, payloads, userId);
           if (result.success) {
-            for (const item of tableInserts) await this.queue.markSuccess(item.id);
+            for (const item of tableInserts) {
+              logQueueItemExecution(item, 'SUCCESS');
+              await this.queue.markSuccess(item.id);
+            }
             rowsUploaded += tableInserts.length;
             totalSuccessful += tableInserts.length;
           } else {
-            for (const item of tableInserts) await this.queue.markFailed(item.id, new Error('Insert failed'), item.retry_count);
+            for (const item of tableInserts) {
+              logQueueItemExecution(item, 'FAILURE', 'Batched insert failed');
+              await this.queue.markFailed(item.id, new Error('Insert failed'), item.retry_count);
+            }
             totalFailed += tableInserts.length;
           }
         }
@@ -101,17 +130,20 @@ export class SyncEngine {
         const tableDeletes = deletes.filter(i => i.table_name === table);
         if (tableDeletes.length > 0) {
           totalAttempted += tableDeletes.length;
-          for (const item of tableDeletes) {
-            console.log(`[Queue Item] Queue ID: ${item.id} | Action: DELETE | Local: ${item.table_name} | Remote: ${getSupabaseTableName(item.table_name)}`);
-          }
           const ids = tableDeletes.map(i => i.record_id);
           const result = await this.pushLayer.pushBatchedDeletes(table, ids);
           if (result.success) {
-            for (const item of tableDeletes) await this.queue.markSuccess(item.id);
+            for (const item of tableDeletes) {
+              logQueueItemExecution(item, 'SUCCESS');
+              await this.queue.markSuccess(item.id);
+            }
             rowsUploaded += tableDeletes.length;
             totalSuccessful += tableDeletes.length;
           } else {
-            for (const item of tableDeletes) await this.queue.markFailed(item.id, new Error('Delete failed'), item.retry_count);
+            for (const item of tableDeletes) {
+              logQueueItemExecution(item, 'FAILURE', 'Batched delete failed');
+              await this.queue.markFailed(item.id, new Error('Delete failed'), item.retry_count);
+            }
             totalFailed += tableDeletes.length;
           }
         }
@@ -120,7 +152,6 @@ export class SyncEngine {
       // 4. Sequential Updates (for optimistic concurrency)
       for (const item of updates) {
         totalAttempted++;
-        console.log(`[Queue Item] Queue ID: ${item.id} | Action: UPDATE | Local: ${item.table_name} | Remote: ${getSupabaseTableName(item.table_name)}`);
         await this.queue.markProcessing(item.id);
         
         let payloadObj: any = {};
@@ -133,14 +164,17 @@ export class SyncEngine {
         const result = await this.pushLayer.pushQueueItem(item.table_name, item.action, payloadObj, userId);
         
         if (result.success) {
+          logQueueItemExecution(item, 'SUCCESS');
           await this.queue.markSuccess(item.id);
           rowsUploaded++;
           totalSuccessful++;
         } else if (result.retryable) {
+          logQueueItemExecution(item, 'FAILURE', 'Network or retryable error');
           await this.queue.markFailed(item.id, new Error('Network error'), item.retry_count);
           totalFailed++;
         } else if (result.conflict) {
           conflictsEncountered++;
+          logQueueItemExecution(item, 'CONFLICT', result.remoteRow);
           const resolution = await this.conflictResolver.resolveSingleConflict(payloadObj, result.remoteRow);
           
           if (resolution === 'LOCAL_WINS') {
@@ -154,6 +188,7 @@ export class SyncEngine {
             await this.queue.markSuccess(item.id); 
           }
         } else {
+          logQueueItemExecution(item, 'FAILURE', 'Push failed');
           await this.queue.markFailed(item.id, new Error('Push failed'), item.retry_count);
           totalFailed++;
         }
@@ -178,7 +213,7 @@ export class SyncEngine {
       const remoteData = await this.pullLayer.pullLatestData(lastSyncTime);
       const supabaseLatencyMs = Date.now() - pullStartTime;
       
-      const rowsDownloaded = remoteData.users.length + remoteData.banks.length + remoteData.ipos.length + remoteData.applications.length + (remoteData.ipo_master?.length || 0);
+      const rowsDownloaded = remoteData.users.length + remoteData.banks.length + remoteData.applications.length + (remoteData.ipo_master?.length || 0);
 
       // We protect our queue during merge by skipping pending IDs.
       const pendingIds = new Set(remainingItems.map(q => q.record_id));
@@ -187,7 +222,6 @@ export class SyncEngine {
       console.log(`[Sync] Merging ${rowsDownloaded} downloaded records into local DB...`);
       await this.mergeTable('users_table', remoteData.users, pendingIds);
       await this.mergeTable('bank_accounts', remoteData.banks, pendingIds);
-      await this.mergeTable('ipo_listings', remoteData.ipos, pendingIds);
       await this.mergeTable('ipo_applications', remoteData.applications, pendingIds);
       if (remoteData.ipo_master && remoteData.ipo_master.length > 0) {
         await this.mergeTable('ipo_master', remoteData.ipo_master, pendingIds);

@@ -35,6 +35,31 @@ function decodeJwtSub(token: string): string {
   }
 }
 
+function logSupabaseOperation(
+  remoteTable: string,
+  operation: 'SELECT' | 'UPSERT' | 'DELETE' | 'UPDATE',
+  payload: any,
+  data: any,
+  error: any
+) {
+  console.log(`\n=================== [SUPABASE OPERATION LOG] ===================`);
+  console.log(`- Remote Table: '${remoteTable}'`);
+  console.log(`- Operation: '${operation}'`);
+  console.log(`- Payload:`, JSON.stringify(payload, null, 2));
+  console.log(`- Returned Data:`, JSON.stringify(data, null, 2));
+  if (error) {
+    console.error(`- ERROR ENCOUNTERED:`, error);
+    console.error(`  - Complete Error Object:`, JSON.stringify(error, null, 2));
+    console.error(`  - PostgREST Code: ${error?.code ?? 'N/A'}`);
+    console.error(`  - Message: ${error?.message ?? 'N/A'}`);
+    console.error(`  - Details: ${error?.details ?? 'N/A'}`);
+    console.error(`  - Hint: ${error?.hint ?? 'N/A'}`);
+  } else {
+    console.log(`- Status: SUCCESS`);
+  }
+  console.log(`================================================================\n`);
+}
+
 async function logAuthDetailsBeforeUpsert(remoteTable: string, payloads: any[]) {
   try {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -82,28 +107,13 @@ export class SyncPush {
 
     const transformedPayloads = payloads.map((p) => transformForRemote(tableName, p, userId));
 
-    console.log(`==========`);
-    console.log(`TABLE: ${tableName}`);
-    console.log(`REMOTE TABLE: ${remoteTable}`);
-    console.log(`RAW SQLITE OBJECT:`, JSON.stringify(payloads, null, 2));
-    console.log(`↓`);
-    console.log(`TRANSFORMED OBJECT:`, JSON.stringify(transformedPayloads, null, 2));
-    console.log(`↓`);
-    console.log(`JSON SENT TO SUPABASE:`, JSON.stringify(transformedPayloads, null, 2));
-    console.log(`==========`);
-
     await logAuthDetailsBeforeUpsert(remoteTable, transformedPayloads);
 
     const { data, error } = await supabase.from(remoteTable).upsert(transformedPayloads, { onConflict: 'id' }).select();
 
-    console.log(`[Supabase Response] Data:`, JSON.stringify(data, null, 2));
+    logSupabaseOperation(remoteTable, 'UPSERT', transformedPayloads, data, error);
 
     if (error) {
-      console.error(`[Supabase Error] Table '${remoteTable}' UPSERT failed:`);
-      console.error(`  error.code: ${error.code}`);
-      console.error(`  error.message: ${error.message}`);
-      console.error(`  error.details: ${error.details}`);
-      console.error(`  error.hint: ${error.hint}`);
       return { success: false, retryable: true };
     }
     return { success: true };
@@ -117,21 +127,16 @@ export class SyncPush {
       return { success: true };
     }
 
-    console.log('[DEBUG] Local table:', tableName);
-    console.log('[DEBUG] Remote table:', remoteTable);
-    console.log('[DEBUG] Operation: DELETE (Batched)');
-    console.log('[DEBUG] IDs:', ids);
+    const { data, error } = await supabase.from(remoteTable).delete().in('id', ids).select();
 
-    const { error } = await supabase.from(remoteTable).delete().in('id', ids);
+    logSupabaseOperation(remoteTable, 'DELETE', { ids }, data, error);
 
     if (error) {
-      console.error(`[Push] Batched DELETE error on ${remoteTable}:`, error);
       return { success: false, retryable: true };
     }
     return { success: true };
   }
 
-  // Dispatcher for single queue items (e.g. UPDATEs)
   async pushQueueItem(tableName: string, action: string, payload: any, userId?: string): Promise<PushResult> {
     const remoteTable = getSupabaseTableName(tableName);
     if (!remoteTable || !isWritableTable(tableName)) {
@@ -141,30 +146,24 @@ export class SyncPush {
 
     if (action === 'INSERT') {
       const item = transformForRemote(tableName, payload, userId);
-      console.log('[DEBUG] Local table:', tableName);
-      console.log('[DEBUG] Remote table:', remoteTable);
-      console.log('[DEBUG] Operation: INSERT (Single)');
-      console.log('[DEBUG] Payload:', JSON.stringify(item, null, 2));
-
       await logAuthDetailsBeforeUpsert(remoteTable, [item]);
 
-      const { error } = await supabase.from(remoteTable).upsert(item, { onConflict: 'id' });
+      const { data, error } = await supabase.from(remoteTable).upsert(item, { onConflict: 'id' }).select();
+
+      logSupabaseOperation(remoteTable, 'UPSERT', item, data, error);
+
       if (error) {
-        console.error(`[Push] INSERT/UPSERT error on ${remoteTable}:`, error);
         return { success: false, retryable: true };
       }
       return { success: true };
     } 
 
     if (action === 'DELETE') {
-      console.log('[DEBUG] Local table:', tableName);
-      console.log('[DEBUG] Remote table:', remoteTable);
-      console.log('[DEBUG] Operation: DELETE (Single)');
-      console.log('[DEBUG] Record ID:', payload.id);
+      const { data, error } = await supabase.from(remoteTable).delete().eq('id', payload.id).select();
 
-      const { error } = await supabase.from(remoteTable).delete().eq('id', payload.id);
+      logSupabaseOperation(remoteTable, 'DELETE', { id: payload.id }, data, error);
+
       if (error) {
-        console.error(`[Push] DELETE error on ${remoteTable}:`, error);
         return { success: false, retryable: true };
       }
       return { success: true };
@@ -181,11 +180,6 @@ export class SyncPush {
         updated_at: nextUpdatedAt
       }, userId);
 
-      console.log('[DEBUG] Local table:', tableName);
-      console.log('[DEBUG] Remote table:', remoteTable);
-      console.log('[DEBUG] Operation: UPDATE (Single)');
-      console.log('[DEBUG] Payload:', JSON.stringify(updatePayload, null, 2));
-
       const { data, error } = await supabase
         .from(remoteTable)
         .update(updatePayload)
@@ -194,14 +188,16 @@ export class SyncPush {
         .select()
         .maybeSingle();
 
+      logSupabaseOperation(remoteTable, 'UPDATE', updatePayload, data, error);
+
       if (error) {
-        console.error(`[Network] UPDATE error on ${remoteTable}:`, error);
         return { success: false, retryable: true };
       }
 
       if (!data) {
         console.warn(`[Conflict] Sync conflict on ${remoteTable} for id ${payload.id}. Version mismatch.`);
-        const { data: remoteRow } = await supabase.from(remoteTable).select('*').eq('id', payload.id).maybeSingle();
+        const { data: remoteRow, error: remoteError } = await supabase.from(remoteTable).select('*').eq('id', payload.id).maybeSingle();
+        logSupabaseOperation(remoteTable, 'SELECT', { id: payload.id }, remoteRow, remoteError);
         return { success: false, conflict: true, remoteRow };
       }
 
