@@ -1,30 +1,29 @@
 import { supabase } from '@/sync/supabase';
 import { PullPayload } from './types';
+import { transformForRemote } from './transform';
 
 export class SyncPull {
   async pullLatestData(lastSyncTimestamp: string | null): Promise<PullPayload> {
     console.log(`[Pull] Fetching latest data from Supabase since ${lastSyncTimestamp || 'beginning of time'}...`);
     
-    // Strict remote table queries:
-    // - users
-    // - banks
-    // - ipo_master
-    // - applications
+    // Remote table queries:
+    // Read/Write tables: users, banks, applications, ipos (ipo_listings)
+    // Pull-only reference table: ipo_master
     
-    const queries = [
+    const [users, banks, apps, ipoMaster, ipos] = await Promise.all([
       this.fetchTable('users', lastSyncTimestamp),
       this.fetchTable('banks', lastSyncTimestamp),
+      this.fetchTable('applications', lastSyncTimestamp),
       this.fetchTable('ipo_master', lastSyncTimestamp),
-      this.fetchTable('applications', lastSyncTimestamp)
-    ];
-
-    const [users, banks, ipos, apps] = await Promise.all(queries);
+      this.fetchTable('ipos', lastSyncTimestamp),
+    ]);
 
     return {
-      users: users,
-      banks: banks,
-      ipos: ipos,
+      users,
+      banks,
       applications: apps,
+      ipo_master: ipoMaster,
+      ipos,
       brokers: [],
       settings: [],
       notes: [],
@@ -44,6 +43,7 @@ export class SyncPull {
       console.error(`[Pull] Error fetching from ${remoteTable}:`, error);
       return [];
     }
-    return data || [];
+
+    return (data || []).map((row) => transformForRemote(remoteTable, row));
   }
 }

@@ -1,138 +1,10 @@
 import { SQLiteDatabase } from 'expo-sqlite';
 import { supabase } from '@/sync/supabase';
 import { PushResult } from './types';
-import { getSupabaseTableName } from './constants';
+import { getSupabaseTableName, isWritableTable } from './constants';
+import { transformForRemote } from './transform';
 
-const ALLOWED_COLUMNS: Record<string, Set<string>> = {
-  users_table: new Set([
-    'id', 'owner_id', 'name', 'pan', 'upi_id', 'dp_id', 'client_id', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
-  ]),
-  bank_accounts: new Set([
-    'id', 'owner_id', 'user_id', 'upi_id', 'account_number', 'ifsc', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
-  ]),
-  ipo_listings: new Set([
-    'id', 'owner_id', 'company_name', 'symbol', 'lot_size', 'listing_date', 'status', 'created_at', 'updated_at'
-  ]),
-  ipo_applications: new Set([
-    'id', 'owner_id', 'user_id', 'ipo_id', 'bank_id', 'status', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
-  ]),
-};
-
-export function transformForRemote(tableName: string, item: any, userId?: string): any {
-  if (!item) return item;
-  const transformed: any = {};
-  const ownerId = item.owner_id || userId;
-
-  if (tableName === 'users_table') {
-    if (item.id !== undefined) transformed.id = item.id;
-    if (ownerId) transformed.owner_id = ownerId;
-    if (item.name !== undefined) transformed.name = item.name;
-    if (item.pan_number !== undefined) transformed.pan = item.pan_number;
-    else if (item.pan !== undefined) transformed.pan = item.pan;
-
-    if (item.upi_app !== undefined) transformed.upi_id = item.upi_app;
-    else if (item.upi_id !== undefined) transformed.upi_id = item.upi_id;
-
-    if (item.dp_id !== undefined) transformed.dp_id = item.dp_id;
-    if (item.client_id !== undefined) transformed.client_id = item.client_id;
-
-    if (item.sync_version !== undefined) transformed.sync_version = item.sync_version;
-    if (item.created_at !== undefined) transformed.created_at = item.created_at;
-    if (item.updated_at !== undefined) transformed.updated_at = item.updated_at;
-    if (item.deleted_at !== undefined) transformed.deleted_at = item.deleted_at;
-
-    if (item.broker !== undefined) {
-      console.log(`[transformForRemote] users_table: Local 'broker' ('${item.broker}') has no remote column on 'users'`);
-    }
-    if (item.tpin !== undefined) {
-      console.log(`[transformForRemote] users_table: Local 'tpin' has no remote column on 'users'`);
-    }
-    if (item.default_amount_blocked !== undefined) {
-      console.log(`[transformForRemote] users_table: Local 'default_amount_blocked' has no remote column on 'users'`);
-    }
-  } else if (tableName === 'bank_accounts') {
-    if (item.id !== undefined) transformed.id = item.id;
-    if (ownerId) transformed.owner_id = ownerId;
-    if (item.user_id !== undefined) transformed.user_id = item.user_id;
-
-    if (item.bank_name !== undefined) transformed.account_number = item.bank_name;
-    else if (item.account_number !== undefined) transformed.account_number = item.account_number;
-
-    if (item.upi_id !== undefined) transformed.upi_id = item.upi_id;
-    if (item.ifsc !== undefined) transformed.ifsc = item.ifsc;
-
-    if (item.sync_version !== undefined) transformed.sync_version = item.sync_version;
-    if (item.created_at !== undefined) transformed.created_at = item.created_at;
-    if (item.updated_at !== undefined) transformed.updated_at = item.updated_at;
-    if (item.deleted_at !== undefined) transformed.deleted_at = item.deleted_at;
-
-    if (item.balance !== undefined) {
-      console.log(`[transformForRemote] bank_accounts: Local 'balance' (${item.balance}) has no remote column on 'banks'`);
-    }
-  } else if (tableName === 'ipo_listings') {
-    if (item.id !== undefined) transformed.id = item.id;
-    if (ownerId) transformed.owner_id = ownerId;
-
-    if (item.ipo_name !== undefined) transformed.company_name = item.ipo_name;
-    else if (item.company_name !== undefined) transformed.company_name = item.company_name;
-
-    if (item.symbol !== undefined && item.symbol !== null && item.symbol !== '') {
-      transformed.symbol = item.symbol;
-    }
-
-    if (item.quantity !== undefined) transformed.lot_size = item.quantity;
-    else if (item.lot_size !== undefined) transformed.lot_size = item.lot_size;
-
-    if (item.listing_date !== undefined) transformed.listing_date = item.listing_date;
-    if (item.status !== undefined) transformed.status = item.status;
-
-    if (item.created_at !== undefined) transformed.created_at = item.created_at;
-    if (item.updated_at !== undefined) transformed.updated_at = item.updated_at;
-
-    if (item.buy_price !== undefined) {
-      console.log(`[transformForRemote] ipo_listings: Local 'buy_price' (${item.buy_price}) has no remote column on 'ipo_master'`);
-    }
-  } else if (tableName === 'ipo_applications') {
-    if (item.id !== undefined) transformed.id = item.id;
-    if (ownerId) transformed.owner_id = ownerId;
-    if (item.user_id !== undefined) transformed.user_id = item.user_id;
-    if (item.ipo_id !== undefined) transformed.ipo_id = item.ipo_id;
-    if (item.bank_id !== undefined) transformed.bank_id = item.bank_id;
-    if (item.status !== undefined) transformed.status = item.status;
-
-    if (item.sync_version !== undefined) transformed.sync_version = item.sync_version;
-    if (item.created_at !== undefined) transformed.created_at = item.created_at;
-    if (item.updated_at !== undefined) transformed.updated_at = item.updated_at;
-    if (item.deleted_at !== undefined) transformed.deleted_at = item.deleted_at;
-
-    if (item.sell_price !== undefined) {
-      console.log(`[transformForRemote] ipo_applications: Local 'sell_price' has no remote column on 'applications'`);
-    }
-    if (item.tax !== undefined) {
-      console.log(`[transformForRemote] ipo_applications: Local 'tax' has no remote column on 'applications'`);
-    }
-    if (item.user_cut !== undefined) {
-      console.log(`[transformForRemote] ipo_applications: Local 'user_cut' has no remote column on 'applications'`);
-    }
-  } else {
-    return { ...item };
-  }
-
-  return transformed;
-}
-
-function sanitizePayload(tableName: string, payload: any): any {
-  const allowed = ALLOWED_COLUMNS[tableName];
-  if (!allowed) return payload;
-
-  const cleanItem: any = {};
-  for (const key of Object.keys(payload)) {
-    if (allowed.has(key)) {
-      cleanItem[key] = payload[key];
-    }
-  }
-  return cleanItem;
-}
+export { transformForRemote };
 
 function decodeJwtSub(token: string): string {
   try {
@@ -186,9 +58,9 @@ async function logAuthDetailsBeforeUpsert(remoteTable: string, payloads: any[]) 
     console.log(`- JWT subject (user id): ${jwtSub}`);
 
     payloads.forEach((payload, idx) => {
-      const payloadUserId = payload.user_id ?? payload.owner_id ?? 'NOT_PRESENT';
-      const match = jwtSub !== 'NONE' && payloadUserId !== 'NOT_PRESENT' ? (jwtSub === payloadUserId ? 'MATCH' : 'MISMATCH') : 'N/A';
-      console.log(`- Payload [${idx}] user_id/owner_id: '${payloadUserId}' | JWT sub: '${jwtSub}' | Comparison: ${match}`);
+      const payloadProfileId = payload.profile_id ?? 'NOT_PRESENT';
+      const match = jwtSub !== 'NONE' && payloadProfileId !== 'NOT_PRESENT' ? (jwtSub === payloadProfileId ? 'MATCH' : 'MISMATCH') : 'N/A';
+      console.log(`- Payload [${idx}] profile_id: '${payloadProfileId}' | JWT sub: '${jwtSub}' | Comparison: ${match}`);
     });
     console.log(`=========================================================\n`);
   } catch (err) {
@@ -203,9 +75,12 @@ export class SyncPush {
     if (payloads.length === 0) return { success: true };
 
     const remoteTable = getSupabaseTableName(tableName);
+    if (!remoteTable || !isWritableTable(tableName)) {
+      console.log(`[Push] Skipping push for non-writable/unmapped table '${tableName}'`);
+      return { success: true };
+    }
 
     const transformedPayloads = payloads.map((p) => transformForRemote(tableName, p, userId));
-    const sanitizedPayloads = transformedPayloads.map((p) => sanitizePayload(tableName, p));
 
     console.log(`==========`);
     console.log(`TABLE: ${tableName}`);
@@ -214,14 +89,12 @@ export class SyncPush {
     console.log(`↓`);
     console.log(`TRANSFORMED OBJECT:`, JSON.stringify(transformedPayloads, null, 2));
     console.log(`↓`);
-    console.log(`FINAL SANITIZED OBJECT:`, JSON.stringify(sanitizedPayloads, null, 2));
-    console.log(`↓`);
-    console.log(`JSON SENT TO SUPABASE:`, JSON.stringify(sanitizedPayloads, null, 2));
+    console.log(`JSON SENT TO SUPABASE:`, JSON.stringify(transformedPayloads, null, 2));
     console.log(`==========`);
 
-    await logAuthDetailsBeforeUpsert(remoteTable, sanitizedPayloads);
+    await logAuthDetailsBeforeUpsert(remoteTable, transformedPayloads);
 
-    const { data, error } = await supabase.from(remoteTable).upsert(sanitizedPayloads, { onConflict: 'id' }).select();
+    const { data, error } = await supabase.from(remoteTable).upsert(transformedPayloads, { onConflict: 'id' }).select();
 
     console.log(`[Supabase Response] Data:`, JSON.stringify(data, null, 2));
 
@@ -239,6 +112,10 @@ export class SyncPush {
   async pushBatchedDeletes(tableName: string, ids: string[]): Promise<PushResult> {
     if (ids.length === 0) return { success: true };
     const remoteTable = getSupabaseTableName(tableName);
+    if (!remoteTable || !isWritableTable(tableName)) {
+      console.log(`[Push] Skipping DELETE push for non-writable/unmapped table '${tableName}'`);
+      return { success: true };
+    }
 
     console.log('[DEBUG] Local table:', tableName);
     console.log('[DEBUG] Remote table:', remoteTable);
@@ -254,13 +131,16 @@ export class SyncPush {
     return { success: true };
   }
 
-  // A generic dispatcher based on queue payload (used for UPDATEs)
+  // Dispatcher for single queue items (e.g. UPDATEs)
   async pushQueueItem(tableName: string, action: string, payload: any, userId?: string): Promise<PushResult> {
     const remoteTable = getSupabaseTableName(tableName);
+    if (!remoteTable || !isWritableTable(tableName)) {
+      console.log(`[Push] Skipping push item for non-writable/unmapped table '${tableName}'`);
+      return { success: true };
+    }
 
     if (action === 'INSERT') {
-      const transformed = transformForRemote(tableName, payload, userId);
-      const item = sanitizePayload(tableName, transformed);
+      const item = transformForRemote(tableName, payload, userId);
       console.log('[DEBUG] Local table:', tableName);
       console.log('[DEBUG] Remote table:', remoteTable);
       console.log('[DEBUG] Operation: INSERT (Single)');
@@ -295,13 +175,11 @@ export class SyncPush {
       const nextVersion = expectedVersion + 1;
       const nextUpdatedAt = new Date().toISOString();
 
-      const transformed = transformForRemote(tableName, {
+      const updatePayload: any = transformForRemote(tableName, {
         ...payload,
         sync_version: nextVersion,
         updated_at: nextUpdatedAt
       }, userId);
-
-      const updatePayload: any = sanitizePayload(tableName, transformed);
 
       console.log('[DEBUG] Local table:', tableName);
       console.log('[DEBUG] Remote table:', remoteTable);

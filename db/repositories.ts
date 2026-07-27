@@ -123,7 +123,7 @@ export class ApplicationRepository {
   async getAll(): Promise<ApplicationWithDetails[]> {
     return await this.db.getAllAsync<ApplicationWithDetails>(`
       SELECT a.id, a.user_id, a.ipo_id, a.status, a.sell_price, a.sale_date, a.tax, a.user_cut,
-             a.is_favorite,
+             a.created_at, a.updated_at, a.is_favorite,
              u.name    AS user_name,
              u.broker  AS user_broker,
              u.bank_name AS user_bank_name,
@@ -133,7 +133,7 @@ export class ApplicationRepository {
       JOIN   users_table u ON a.user_id = u.id
       JOIN   ipo_listings i ON a.ipo_id = i.id
       WHERE  a.deleted_at IS NULL AND u.deleted_at IS NULL AND i.deleted_at IS NULL
-      ORDER  BY a.created_at DESC
+      ORDER  BY a.created_at DESC, a.updated_at DESC
     `);
   }
 

@@ -99,9 +99,17 @@ export default function ApplicationsTabScreen() {
     );
   });
 
-  const filtered = hasFilter
+  const rawFiltered = hasFilter
     ? (activeTab === 'Favorites' ? searchFiltered.filter((a) => a.is_favorite === 1) : searchFiltered)
     : (activeTab === 'Favorites' ? searchFiltered.filter((a) => a.is_favorite === 1) : searchFiltered.filter((a) => a.status === activeTab));
+
+  const filtered = React.useMemo(() => {
+    return [...rawFiltered].sort((a, b) => {
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, [rawFiltered]);
 
   const countFor = (key: TabKey) => {
     if (key === 'Favorites') return searchFiltered.filter((a) => a.is_favorite === 1).length;

@@ -56,6 +56,8 @@ export type ApplicationWithDetails = {
   buy_price: number;
   quantity: number;
   open_date: string;
+  created_at?: string;
+  updated_at?: string;
   is_favorite: number; // 0 = no, 1 = yes
 };
 

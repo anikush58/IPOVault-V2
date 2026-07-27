@@ -178,7 +178,7 @@ export class SyncEngine {
       const remoteData = await this.pullLayer.pullLatestData(lastSyncTime);
       const supabaseLatencyMs = Date.now() - pullStartTime;
       
-      const rowsDownloaded = remoteData.users.length + remoteData.banks.length + remoteData.ipos.length + remoteData.applications.length;
+      const rowsDownloaded = remoteData.users.length + remoteData.banks.length + remoteData.ipos.length + remoteData.applications.length + (remoteData.ipo_master?.length || 0);
 
       // We protect our queue during merge by skipping pending IDs.
       const pendingIds = new Set(remainingItems.map(q => q.record_id));
@@ -189,6 +189,9 @@ export class SyncEngine {
       await this.mergeTable('bank_accounts', remoteData.banks, pendingIds);
       await this.mergeTable('ipo_listings', remoteData.ipos, pendingIds);
       await this.mergeTable('ipo_applications', remoteData.applications, pendingIds);
+      if (remoteData.ipo_master && remoteData.ipo_master.length > 0) {
+        await this.mergeTable('ipo_master', remoteData.ipo_master, pendingIds);
+      }
 
       const now = new Date().toISOString();
       const avgSyncDurationMs = Date.now() - startTime;

@@ -29,7 +29,6 @@ export interface SyncQueueItem {
   created_at: string;
 }
 
-// Stub types for the entities we might push/pull
 export interface PushResult {
   success: boolean;
   conflict?: boolean;
@@ -42,6 +41,7 @@ export interface PushPayload {
   banks: any[];
   ipos: any[];
   applications: any[];
+  ipo_master?: any[];
   brokers: any[];
   settings: any[];
   notes: any[];
@@ -52,6 +52,7 @@ export interface PullPayload {
   banks: any[];
   ipos: any[];
   applications: any[];
+  ipo_master?: any[];
   brokers: any[];
   settings: any[];
   notes: any[];

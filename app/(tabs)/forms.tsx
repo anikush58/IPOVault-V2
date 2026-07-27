@@ -68,13 +68,48 @@ export default function FormsScreen() {
 
   const UPI_APPS = ['GPay', 'BHIM', 'PayTM', 'PhonePe', 'IDFC ASBA', 'BoB ASBA'];
 
-  const appliedApps = applications.filter((a) => a.status === 'Applied');
+  const appliedApps = React.useMemo(() => {
+    return applications
+      .filter((a) => a.status === 'Applied')
+      .sort((a, b) => {
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return timeB - timeA;
+      });
+  }, [applications]);
+
   const activeIPOs = ipos.filter((ipo) => ipo.archived === 0);
   const selectedIPO = ipos.find((i) => i.id === bulkIPOId);
   const selectedBank = bankAccounts.find((b) => b.bank_name === bulkBankName) ?? null;
 
-  // All users are always shown; bank selection is purely for balance preview
-  const filteredUsers = users;
+  // Filter out users who have already applied for the selected IPO
+  const appliedUserIdsForSelectedIPO = React.useMemo(() => {
+    if (!bulkIPOId) return new Set<string>();
+    return new Set(
+      applications
+        .filter((a) => a.ipo_id === bulkIPOId)
+        .map((a) => a.user_id)
+    );
+  }, [bulkIPOId, applications]);
+
+  const filteredUsers = React.useMemo(() => {
+    if (!bulkIPOId) return users;
+    return users.filter((u) => !appliedUserIdsForSelectedIPO.has(u.id));
+  }, [users, bulkIPOId, appliedUserIdsForSelectedIPO]);
+
+  React.useEffect(() => {
+    if (bulkIPOId) {
+      setSelectedUserIds((prev) => {
+        const next = new Set<string>();
+        prev.forEach((id) => {
+          if (!appliedUserIdsForSelectedIPO.has(id)) {
+            next.add(id);
+          }
+        });
+        return next;
+      });
+    }
+  }, [bulkIPOId, appliedUserIdsForSelectedIPO]);
 
   const handleBankSelect = (bankName: string) => {
     setBulkBankName(bankName);
@@ -301,9 +336,13 @@ export default function FormsScreen() {
           <Text style={[styles.fieldLabel, { color: colors.mutedForeground, marginTop: selectedBank ? 20 : 12 }]}>
             SELECT USERS
           </Text>
-          {filteredUsers.length === 0 ? (
+          {users.length === 0 ? (
             <Text style={[styles.noData, { color: colors.mutedForeground }]}>
               No users yet — add users in the Users tab.
+            </Text>
+          ) : filteredUsers.length === 0 ? (
+            <Text style={[styles.noData, { color: colors.mutedForeground }]}>
+              All users have already applied for this IPO.
             </Text>
           ) : (
             <TouchableOpacity
