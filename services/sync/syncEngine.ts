@@ -4,6 +4,7 @@ import { SyncPush } from './push';
 import { SyncPull } from './pull';
 import { ConflictResolver } from './conflictResolver';
 import { syncStore } from './syncStatus';
+import { getSupabaseTableName } from './constants';
 
 export class SyncEngine {
   private queue: SyncQueue;

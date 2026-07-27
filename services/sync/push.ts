@@ -191,7 +191,8 @@ export class SyncPush {
     const remoteTable = getSupabaseTableName(tableName);
 
     if (action === 'INSERT') {
-      const item = sanitizePayload(tableName, payload, userId);
+      const transformed = transformForRemote(tableName, payload, userId);
+      const item = sanitizePayload(tableName, transformed);
       console.log('[DEBUG] Local table:', tableName);
       console.log('[DEBUG] Remote table:', remoteTable);
       console.log('[DEBUG] Operation: INSERT (Single)');
@@ -224,11 +225,13 @@ export class SyncPush {
       const nextVersion = expectedVersion + 1;
       const nextUpdatedAt = new Date().toISOString();
 
-      const updatePayload: any = sanitizePayload(tableName, {
+      const transformed = transformForRemote(tableName, {
         ...payload,
         sync_version: nextVersion,
         updated_at: nextUpdatedAt
       }, userId);
+
+      const updatePayload: any = sanitizePayload(tableName, transformed);
 
       console.log('[DEBUG] Local table:', tableName);
       console.log('[DEBUG] Remote table:', remoteTable);
