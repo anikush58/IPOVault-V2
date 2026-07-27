@@ -5,25 +5,27 @@ import { getSupabaseTableName } from './constants';
 
 const ALLOWED_COLUMNS: Record<string, Set<string>> = {
   users_table: new Set([
-    'id', 'name', 'pan', 'upi_id', 'dp_id', 'client_id', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
+    'id', 'owner_id', 'name', 'pan', 'upi_id', 'dp_id', 'client_id', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
   ]),
   bank_accounts: new Set([
-    'id', 'user_id', 'upi_id', 'account_number', 'ifsc', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
+    'id', 'owner_id', 'user_id', 'upi_id', 'account_number', 'ifsc', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
   ]),
   ipo_listings: new Set([
-    'id', 'company_name', 'symbol', 'lot_size', 'listing_date', 'status', 'created_at', 'updated_at'
+    'id', 'owner_id', 'company_name', 'symbol', 'lot_size', 'listing_date', 'status', 'created_at', 'updated_at'
   ]),
   ipo_applications: new Set([
-    'id', 'user_id', 'ipo_id', 'bank_id', 'status', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
+    'id', 'owner_id', 'user_id', 'ipo_id', 'bank_id', 'status', 'sync_version', 'created_at', 'updated_at', 'deleted_at'
   ]),
 };
 
 export function transformForRemote(tableName: string, item: any, userId?: string): any {
   if (!item) return item;
   const transformed: any = {};
+  const ownerId = item.owner_id || userId;
 
   if (tableName === 'users_table') {
     if (item.id !== undefined) transformed.id = item.id;
+    if (ownerId) transformed.owner_id = ownerId;
     if (item.name !== undefined) transformed.name = item.name;
     if (item.pan_number !== undefined) transformed.pan = item.pan_number;
     else if (item.pan !== undefined) transformed.pan = item.pan;
@@ -50,8 +52,8 @@ export function transformForRemote(tableName: string, item: any, userId?: string
     }
   } else if (tableName === 'bank_accounts') {
     if (item.id !== undefined) transformed.id = item.id;
+    if (ownerId) transformed.owner_id = ownerId;
     if (item.user_id !== undefined) transformed.user_id = item.user_id;
-    else if (userId) transformed.user_id = userId;
 
     if (item.bank_name !== undefined) transformed.account_number = item.bank_name;
     else if (item.account_number !== undefined) transformed.account_number = item.account_number;
@@ -69,6 +71,7 @@ export function transformForRemote(tableName: string, item: any, userId?: string
     }
   } else if (tableName === 'ipo_listings') {
     if (item.id !== undefined) transformed.id = item.id;
+    if (ownerId) transformed.owner_id = ownerId;
 
     if (item.ipo_name !== undefined) transformed.company_name = item.ipo_name;
     else if (item.company_name !== undefined) transformed.company_name = item.company_name;
@@ -91,6 +94,7 @@ export function transformForRemote(tableName: string, item: any, userId?: string
     }
   } else if (tableName === 'ipo_applications') {
     if (item.id !== undefined) transformed.id = item.id;
+    if (ownerId) transformed.owner_id = ownerId;
     if (item.user_id !== undefined) transformed.user_id = item.user_id;
     if (item.ipo_id !== undefined) transformed.ipo_id = item.ipo_id;
     if (item.bank_id !== undefined) transformed.bank_id = item.bank_id;
@@ -130,6 +134,68 @@ function sanitizePayload(tableName: string, payload: any): any {
   return cleanItem;
 }
 
+function decodeJwtSub(token: string): string {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return 'INVALID_JWT_FORMAT';
+    let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) {
+      base64 += '=';
+    }
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+    let str = '';
+    for (let i = 0; i < base64.length;) {
+      const enc1 = chars.indexOf(base64.charAt(i++));
+      const enc2 = chars.indexOf(base64.charAt(i++));
+      const enc3 = chars.indexOf(base64.charAt(i++));
+      const enc4 = chars.indexOf(base64.charAt(i++));
+      const chr1 = (enc1 << 2) | (enc2 >> 4);
+      const chr2 = ((enc2 & 15) << 4) | (enc3 >> 2);
+      const chr3 = ((enc3 & 3) << 6) | enc4;
+      str += String.fromCharCode(chr1);
+      if (enc3 !== 64 && chr2 !== 0) str += String.fromCharCode(chr2);
+      if (enc4 !== 64 && chr3 !== 0) str += String.fromCharCode(chr3);
+    }
+    const json = JSON.parse(decodeURIComponent(escape(str)));
+    return json.sub || 'NO_SUB_FIELD';
+  } catch (e: any) {
+    return `DECODE_ERROR (${e?.message})`;
+  }
+}
+
+async function logAuthDetailsBeforeUpsert(remoteTable: string, payloads: any[]) {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const { data: userData } = await supabase.auth.getUser();
+
+    const session = sessionData?.session;
+    const user = userData?.user;
+
+    console.log(`\n=================== [UPSERT AUTH LOG] ===================`);
+    console.log(`Remote Table: '${remoteTable}'`);
+    console.log(`- session exists?: ${!!session}`);
+    console.log(`- access token exists?: ${!!session?.access_token}`);
+    console.log(`- authenticated user id (getUser): ${user?.id ?? 'NONE'}`);
+    console.log(`- authenticated user id (getSession): ${session?.user?.id ?? 'NONE'}`);
+    console.log(`- expires_at: ${session?.expires_at ? new Date(session.expires_at * 1000).toISOString() : 'NONE'}`);
+
+    let jwtSub = 'NONE';
+    if (session?.access_token) {
+      jwtSub = decodeJwtSub(session.access_token);
+    }
+    console.log(`- JWT subject (user id): ${jwtSub}`);
+
+    payloads.forEach((payload, idx) => {
+      const payloadUserId = payload.user_id ?? payload.owner_id ?? 'NOT_PRESENT';
+      const match = jwtSub !== 'NONE' && payloadUserId !== 'NOT_PRESENT' ? (jwtSub === payloadUserId ? 'MATCH' : 'MISMATCH') : 'N/A';
+      console.log(`- Payload [${idx}] user_id/owner_id: '${payloadUserId}' | JWT sub: '${jwtSub}' | Comparison: ${match}`);
+    });
+    console.log(`=========================================================\n`);
+  } catch (err) {
+    console.error('[UPSERT Auth Log Error]', err);
+  }
+}
+
 export class SyncPush {
   constructor(private db: SQLiteDatabase) {}
 
@@ -152,6 +218,8 @@ export class SyncPush {
     console.log(`↓`);
     console.log(`JSON SENT TO SUPABASE:`, JSON.stringify(sanitizedPayloads, null, 2));
     console.log(`==========`);
+
+    await logAuthDetailsBeforeUpsert(remoteTable, sanitizedPayloads);
 
     const { data, error } = await supabase.from(remoteTable).upsert(sanitizedPayloads, { onConflict: 'id' }).select();
 
@@ -197,6 +265,8 @@ export class SyncPush {
       console.log('[DEBUG] Remote table:', remoteTable);
       console.log('[DEBUG] Operation: INSERT (Single)');
       console.log('[DEBUG] Payload:', JSON.stringify(item, null, 2));
+
+      await logAuthDetailsBeforeUpsert(remoteTable, [item]);
 
       const { error } = await supabase.from(remoteTable).upsert(item, { onConflict: 'id' });
       if (error) {
